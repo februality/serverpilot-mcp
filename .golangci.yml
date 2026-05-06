@@ -18,9 +18,11 @@ linters:
         - (*github.com/pkg/sftp.Client).Close
         - (*github.com/pkg/sftp.File).Close
     staticcheck:
-      # ST1005 disabled: error strings like "Server not found:", "App not
-      # found:", "Failed to read %s" are part of the public contract.
-      # Downstream skills parse them — see CLAUDE.md.
       checks:
         - all
+        # ST1005: error strings like "Server not found:", "Failed to read %s"
+        # are public contract — downstream skills parse them (see CLAUDE.md).
         - "-ST1005"
+        # ST1000: don't require package-level doc comments on internal
+        # packages — file-level comments are enough.
+        - "-ST1000"
