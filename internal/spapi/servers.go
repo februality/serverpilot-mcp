@@ -65,7 +65,6 @@ func (s *ServersAPI) Resolve(idOrName string) (*SPServer, error) {
 		return nil, err
 	}
 	if srv == nil {
-		//nolint:staticcheck // ST1005: error format is public contract — downstream skills parse it
 		return nil, fmt.Errorf("Server not found: %s", idOrName)
 	}
 	return srv, nil

@@ -65,7 +65,7 @@ func (c *Client) request(method, path string, body any, out any) error {
 	if err != nil {
 		return fmt.Errorf("ServerPilot API %s %s: %w", method, path, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

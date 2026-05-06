@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # Failures from these calls aren't actionable in this codebase:
+      #   - fmt.Fprint*: terminal/log output to a TTY
+      #   - Close():    network/file resources, deferred fire-and-forget
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+        - (*net/http.Response).Body.Close
+        - (*golang.org/x/crypto/ssh.Session).Close
+        - (*golang.org/x/crypto/ssh.Client).Close
+        - (*github.com/pkg/sftp.Client).Close
+        - (*github.com/pkg/sftp.File).Close
+    staticcheck:
+      # ST1005 disabled: error strings like "Server not found:", "App not
+      # found:", "Failed to read %s" are part of the public contract.
+      # Downstream skills parse them — see CLAUDE.md.
+      checks:
+        - all
+        - "-ST1005"
