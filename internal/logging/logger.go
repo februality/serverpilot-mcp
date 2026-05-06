@@ -1,3 +1,5 @@
+// Package logging provides the project's slog handler. Output goes to
+// stderr only — stdout is reserved for MCP JSON-RPC framing.
 package logging
 
 import (

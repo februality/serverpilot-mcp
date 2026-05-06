@@ -1,3 +1,8 @@
+// Package cli wires the cobra subcommand tree (root, serve, setup, install,
+// uninstall, status, doctor, version). The TTY heuristic in this file
+// decides whether bare `serverpilot-mcp` runs the MCP server (pipe) or
+// prints help (terminal) — this prevents MCP clients from accidentally
+// launching the interactive wizard.
 package cli
 
 import (

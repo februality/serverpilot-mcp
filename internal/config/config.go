@@ -1,3 +1,6 @@
+// Package config holds environment-variable defaults (SP_SSH_KEY_PATH,
+// SP_CACHE_TTL_SECONDS, etc.) and the small helpers that resolve them
+// alongside stored credentials.
 package config
 
 import (
