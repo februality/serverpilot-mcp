@@ -1,0 +1,32 @@
+# Go
+/serverpilot-mcp
+/serverpilot-mcp.exe
+/dist/
+*.test
+coverage.out
+coverage.html
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local env
+.env
+.env.local
+
+# Project-local Claude Code MCP config (often contains creds)
+.mcp.json
+
+# Legacy TypeScript (preserved under legacy-typescript/)
+legacy-typescript/node_modules/
+legacy-typescript/build/
+legacy-typescript/*.tsbuildinfo
+
+# Vendor WordPress plugin blobs (not part of this project; do not commit)
+/wp_plugins/
+
+# Local Claude Code state
+.claude/
+.playwright-mcp/

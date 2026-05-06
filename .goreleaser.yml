@@ -1,0 +1,58 @@
+version: 2
+project_name: serverpilot-mcp
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: serverpilot-mcp
+    main: ./cmd/serverpilot-mcp
+    binary: serverpilot-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/februality/serverpilot-mcp/internal/cli.Version={{ .Version }}
+      - -X github.com/februality/serverpilot-mcp/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/februality/serverpilot-mcp/internal/cli.Date={{ .CommitDate }}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  use: github-native
+
+release:
+  github:
+    owner: februality
+    name: serverpilot-mcp
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"

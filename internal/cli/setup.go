@@ -1,0 +1,35 @@
+package cli
+
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/februality/serverpilot-mcp/internal/wizard"
+)
+
+func NewSetup() *cobra.Command {
+	var (
+		unattended  bool
+		skipSSH     bool
+		skipClients bool
+		onlyClients []string
+	)
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Run the interactive setup wizard",
+		Long: "Walks through credential entry, SSH key bootstrap, and MCP-client " +
+			"configuration. Safe to re-run — every step is idempotent.",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return wizard.Run(wizard.Options{
+				Unattended:  unattended,
+				SkipSSH:     skipSSH,
+				SkipClients: skipClients,
+				OnlyClients: onlyClients,
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&unattended, "unattended", false, "skip prompts (requires SERVERPILOT_CLIENT_ID/_API_KEY env vars)")
+	cmd.Flags().BoolVar(&skipSSH, "skip-ssh", false, "skip SSH key generation/registration")
+	cmd.Flags().BoolVar(&skipClients, "skip-clients", false, "skip MCP-client config patching")
+	cmd.Flags().StringSliceVar(&onlyClients, "client", nil, "limit to specific client IDs (repeatable)")
+	return cmd
+}
