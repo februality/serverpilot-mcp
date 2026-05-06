@@ -1,7 +1,6 @@
 package spapi
 
-// ResolvedSite is the output of SiteResolver.Resolve. Field names mirror
-// src/resolver.ts:ResolvedSite for downstream parity.
+// ResolvedSite is the output of SiteResolver.Resolve.
 type ResolvedSite struct {
 	AppID       string
 	AppName     string

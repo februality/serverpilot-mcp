@@ -12,8 +12,8 @@ import (
 )
 
 // RegisterAPITools registers the 8 ServerPilot API tools on the given server.
-// Tool names, input schemas, and JSON output shapes mirror src/tools/api-tools.ts
-// for byte-for-byte parity with the TypeScript implementation.
+// Tool names, input schemas, and JSON output shapes are part of the public
+// contract — downstream skills parse them, so changes are backwards-incompatible.
 func RegisterAPITools(s *server.MCPServer, d *Deps) {
 	s.AddTool(toolListServers(), handleListServers(d))
 	s.AddTool(toolGetServer(), handleGetServer(d))
@@ -85,7 +85,7 @@ func toolListSysUsers() mcp.Tool {
 	)
 }
 
-// ---- Output shape helpers (match src/tools/api-tools.ts JSON shapes) ----
+// ---- Output shape helpers (locked-down JSON shapes — public contract) ----
 
 type serverSummary struct {
 	ID          string   `json:"id"`

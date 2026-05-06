@@ -8,8 +8,9 @@ import (
 // ValidatePath ensures the given relative or absolute path stays within
 // basePath. Returns the normalized absolute path on success.
 //
-// Mirrors src/resolver.ts:validatePath / normalizePath. The stack-based
-// normalization pops on ".." even when the stack is empty (matches TS).
+// The stack-based normalization pops on ".." even when the stack is empty —
+// this differs from filepath.Clean and is enforced by the fuzz test in
+// validate_test.go.
 func ValidatePath(basePath, path string) (string, error) {
 	if strings.HasPrefix(path, "/") {
 		normalized := normalize(path)

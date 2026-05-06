@@ -137,12 +137,8 @@ go test ./...
 ## Security notes
 
 - Credentials are stored in the OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service) or a `0600` file in your config dir if no keychain is available.
-- The SSH layer uses `ssh.InsecureIgnoreHostKey()` to match the legacy TypeScript implementation. Hardening to `known_hosts`-based verification is a planned follow-up.
+- The SSH layer uses `ssh.InsecureIgnoreHostKey()` — there's no `known_hosts` plumbing yet. Hardening to first-time-trust + on-disk verification is a planned follow-up.
 - All SFTP file operations are sandboxed to `/srv/users/USERNAME/`. Path traversal attempts are rejected before reaching SFTP.
-
-## Legacy TypeScript implementation
-
-Earlier versions of this server were written in TypeScript and distributed via npm. The TypeScript source is preserved at [`legacy-typescript/`](./legacy-typescript) for reference. New work happens in Go.
 
 ## License
 

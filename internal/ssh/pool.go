@@ -22,11 +22,11 @@ type poolEntry struct {
 }
 
 // Pool reuses SSH connections per user@host with a 60-second idle timeout
-// and a 30-second cleanup sweep. Mirrors src/ssh/connection.ts.
+// and a 30-second cleanup sweep.
 //
-// SECURITY NOTE: this pool currently uses InsecureIgnoreHostKey() to match
-// the TypeScript ssh2 default. Hardening (known_hosts on disk + first-time
-// trust prompt) is tracked as a follow-up.
+// SECURITY NOTE: this pool currently uses InsecureIgnoreHostKey().
+// Hardening (known_hosts on disk + first-time trust prompt) is tracked
+// as a follow-up.
 type Pool struct {
 	keyPath   string
 	timeoutMs int

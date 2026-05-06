@@ -2,7 +2,10 @@
 /serverpilot-mcp
 /serverpilot-mcp.exe
 /dist/
+/vendor/
 *.test
+*.prof
+*.pprof
 coverage.out
 coverage.html
 
@@ -12,6 +15,9 @@ coverage.html
 .idea/
 .vscode/
 
+# Logs
+*.log
+
 # Local env
 .env
 .env.local
@@ -19,10 +25,8 @@ coverage.html
 # Project-local Claude Code MCP config (often contains creds)
 .mcp.json
 
-# Legacy TypeScript (preserved under legacy-typescript/)
-legacy-typescript/node_modules/
-legacy-typescript/build/
-legacy-typescript/*.tsbuildinfo
+# Defensive: file-fallback creds shape used by internal/creds/filestore.go
+credentials.json
 
 # Vendor WordPress plugin blobs (not part of this project; do not commit)
 /wp_plugins/

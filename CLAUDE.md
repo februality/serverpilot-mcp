@@ -111,27 +111,23 @@ VS Code is the odd one out — uses `servers.serverpilot` (not `mcpServers.*`) w
 
 - **`site_write_file` overwrites the entire file.** No append/patch mode. Always read → modify → write.
 - **`site_exec` default timeout is 30s.** Pass `timeout: 120000` for broad scans.
-- **Path sandbox in `internal/sandbox/validate.go`** is the only security boundary for `site_*` tools. Mirror src/resolver.ts exactly: pop on `..` even at empty stack, normalize before prefix-check, reject `/srv/users/alice2` when basePath is `/srv/users/alice` (must require `/` separator after basePath).
-- **SSH host key verification is disabled** (`ssh.InsecureIgnoreHostKey()`) to match the TypeScript ssh2 default. Documented in `internal/ssh/pool.go`.
+- **Path sandbox in `internal/sandbox/validate.go`** is the only security boundary for `site_*` tools. Rules: pop on `..` even at empty stack, normalize before prefix-check, reject `/srv/users/alice2` when basePath is `/srv/users/alice` (must require `/` separator after basePath). The fuzz test in `validate_test.go` enforces these — don't relax it.
+- **SSH host key verification is disabled** (`ssh.InsecureIgnoreHostKey()`) — there's no `known_hosts` plumbing yet. Hardening is tracked as a follow-up. Documented in `internal/ssh/pool.go`.
 - **Logs go to stderr.** stdout is reserved for MCP JSON-RPC. Use `slog` via `internal/logging`.
 - **Cache invalidation:** `apps.UpdateRuntime` invalidates `apps` + `app:{id}`; `databases.UpdatePassword` invalidates the `database` prefix.
 - **Don't widen `Patcher.Detect()` heuristics.** Currently checks parent-dir-or-file existence (Claude Code is always-detected because it reads `~/.claude.json` whether or not it exists). Adding registry / app-bundle checks adds platform code without much benefit.
 
 ## Testing
 
-- `internal/spapi/*_test.go` — `httptest.Server` with canned JSON; covers Basic auth, caching, invalidation, resolve fallbacks, JSON output shape parity with the TypeScript implementation.
+- `internal/spapi/*_test.go` — `httptest.Server` with canned JSON; covers Basic auth, caching, invalidation, resolve fallbacks, and locked-down JSON output shapes.
 - `internal/sandbox/validate_test.go` — table-driven + `FuzzValidatePath` to catch traversal escapes.
 - `internal/ssh/keygen_test.go` — proves the `openssh-key-v1` encoder roundtrips through `golang.org/x/crypto/ssh.ParsePrivateKey` and produces signing-correct keys.
 - `internal/clients/*_test.go` — golden in/out: file-not-exists, file-with-other-servers, stale-our-entry, malformed (must error), unpatch.
 - `internal/ssh/pool_test.go` and the wire-level portions of `ops_test.go` — **integration only**, requires a real SSH host; not in CI. (`ssh/ops_test.go` itself only exercises `classifyMode`, which runs anywhere.)
 
-## Legacy TypeScript
-
-`legacy-typescript/` holds the original implementation. Preserved for reference; new work happens in the Go layout above.
-
 ## Code style
 
 - Standard Go layout: `cmd/` for entry points, `internal/` for everything else (no `pkg/` until external consumers exist).
 - `slog` for logging (stderr only).
-- Error messages from API tools/handlers should preserve the exact text format the TypeScript version produced where downstream skills depend on it (e.g., `Server not found: <name>`, `App not found: <name>`).
+- Error messages from API tools/handlers must preserve their documented text format — downstream skills parse them (e.g., `Server not found: <name>`, `App not found: <name>`).
 - No emojis in code or commits unless explicitly requested.

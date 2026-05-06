@@ -13,7 +13,7 @@ import (
 )
 
 // RegisterSiteTools registers site_exec, site_read_file, site_write_file,
-// site_list_files. Mirrors src/tools/site-tools.ts.
+// site_list_files.
 func RegisterSiteTools(s *server.MCPServer, d *Deps) {
 	s.AddTool(toolSiteExec(), handleSiteExec(d))
 	s.AddTool(toolSiteReadFile(), handleSiteReadFile(d))

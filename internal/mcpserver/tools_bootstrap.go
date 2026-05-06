@@ -13,7 +13,6 @@ import (
 )
 
 // RegisterBootstrapTools registers sp_ssh_setup, sp_ssh_status, sp_ssh_remove.
-// Mirrors src/tools/bootstrap-tools.ts.
 func RegisterBootstrapTools(s *server.MCPServer, d *Deps) {
 	s.AddTool(toolSSHSetup(), handleSSHSetup(d))
 	s.AddTool(toolSSHStatus(), handleSSHStatus(d))
