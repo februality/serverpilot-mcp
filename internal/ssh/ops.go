@@ -57,7 +57,7 @@ func (o *Ops) Exec(host, user, command string, opts ExecOptions) (*ExecResult, e
 	if err != nil {
 		return nil, fmt.Errorf("ssh new session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	full := command
 	if opts.Cwd != "" {
@@ -127,12 +127,12 @@ func (o *Ops) ReadFile(host, user, path string, maxLines int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	f, err := c.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("Failed to read %s: %s", path, err.Error())
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(f); err != nil {
 		return "", fmt.Errorf("Failed to read %s: %s", path, err.Error())
@@ -164,7 +164,7 @@ func (o *Ops) WriteFile(host, user, path, content string, createDirs bool) error
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	f, err := c.Create(path)
 	if err != nil {
 		return fmt.Errorf("Failed to write %s: %s", path, err.Error())
@@ -181,7 +181,7 @@ func (o *Ops) ListDir(host, user, path string, showHidden bool) ([]FileEntry, er
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	infos, err := c.ReadDir(path)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to list %s: %s", path, err.Error())

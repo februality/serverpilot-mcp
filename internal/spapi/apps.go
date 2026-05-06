@@ -116,6 +116,7 @@ func (a *AppsAPI) Resolve(idOrNameOrDomain string) (*SPApp, error) {
 		return nil, err
 	}
 	if app == nil {
+		//nolint:staticcheck // ST1005: error format is public contract — downstream skills parse it
 		return nil, fmt.Errorf("App not found: %s", idOrNameOrDomain)
 	}
 	return app, nil

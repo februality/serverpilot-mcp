@@ -81,7 +81,7 @@ func Run(opts Options) error {
 		return fmt.Errorf("verify credentials (GET /servers): %w", err)
 	}
 	appList, _ := apps.List()
-	fmt.Fprintf(w, "  ✓ Verified — %d servers, %d apps\n\n", len(srvList), len(appList))
+	_, _ = fmt.Fprintf(w, "  ✓ Verified — %d servers, %d apps\n\n", len(srvList), len(appList))
 
 	// Step 5: store creds
 	if err := storeCreds(w, clientID, apiKey); err != nil {
@@ -162,7 +162,7 @@ func storeCreds(w io.Writer, clientID, apiKey string) error {
 		fmt.Fprintln(w, "  ✓ Stored credentials in OS keychain")
 	case creds.SourceFile:
 		if fs, ok := store.(*creds.FileStore); ok {
-			fmt.Fprintf(w, "  ✓ Stored credentials at %s (mode 0600)\n", fs.Path())
+			_, _ = fmt.Fprintf(w, "  ✓ Stored credentials at %s (mode 0600)\n", fs.Path())
 		} else {
 			fmt.Fprintln(w, "  ✓ Stored credentials in file fallback")
 		}

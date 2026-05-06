@@ -37,6 +37,7 @@ func (s *SysUsersAPI) Get(id string) (*SPSysUser, error) {
 		return nil, err
 	}
 	if resp.Data.ID == "" {
+		//nolint:staticcheck // ST1005: error format is public contract — downstream skills parse it
 		return nil, fmt.Errorf("System user %s not found", id)
 	}
 	s.cache.Set(key, resp.Data)
