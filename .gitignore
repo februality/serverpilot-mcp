@@ -34,3 +34,4 @@ credentials.json
 # Local Claude Code state
 .claude/
 .playwright-mcp/
+CLAUDE.md

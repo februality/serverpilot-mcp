@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -108,20 +109,22 @@ func TestEnsureKeyPair_GeneratesAndReuses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Files should exist with correct modes.
-	info, err := os.Stat(keyPath)
-	if err != nil {
+	// Files should exist; POSIX mode bits don't apply on Windows (NTFS).
+	if _, err := os.Stat(keyPath); err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("private key mode = %o, want 0600", info.Mode().Perm())
-	}
-	pubInfo, err := os.Stat(keyPath + ".pub")
-	if err != nil {
+	if _, err := os.Stat(keyPath + ".pub"); err != nil {
 		t.Fatal(err)
 	}
-	if pubInfo.Mode().Perm() != 0o644 {
-		t.Errorf("public key mode = %o, want 0644", pubInfo.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, _ := os.Stat(keyPath)
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("private key mode = %o, want 0600", info.Mode().Perm())
+		}
+		pubInfo, _ := os.Stat(keyPath + ".pub")
+		if pubInfo.Mode().Perm() != 0o644 {
+			t.Errorf("public key mode = %o, want 0644", pubInfo.Mode().Perm())
+		}
 	}
 
 	pair2, err := EnsureKeyPair(keyPath, "test")

@@ -9,7 +9,6 @@
 #   SP_INSTALL_DIR   — override install directory (default: /usr/local/bin)
 #   SP_NO_WIZARD=1   — skip the post-install setup wizard
 #   --unattended     — same as SP_NO_WIZARD=1
-#   --yes            — skip confirmation prompts (e.g. existing-install upgrade)
 #   --force          — install even if the same version is already present
 #   CI=1             — auto-skips wizard (already true in most CI runners)
 
@@ -19,7 +18,6 @@ REPO="februality/serverpilot-mcp"
 BIN_NAME="serverpilot-mcp"
 INSTALL_DIR="${SP_INSTALL_DIR:-/usr/local/bin}"
 WANTED_VERSION="${SP_VERSION:-}"
-ASSUME_YES=0
 FORCE=0
 SKIP_WIZARD=0
 
@@ -27,7 +25,6 @@ SKIP_WIZARD=0
 for arg in "$@"; do
     case "$arg" in
     --unattended) SKIP_WIZARD=1 ;;
-    --yes) ASSUME_YES=1 ;;
     --force) FORCE=1 ;;
     *) echo "Unknown flag: $arg" >&2; exit 64 ;;
     esac
