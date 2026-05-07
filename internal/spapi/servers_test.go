@@ -63,6 +63,20 @@ func TestServersAPI_Resolve_ByName_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestServersAPI_List_DecodesNumericLastConn(t *testing.T) {
+	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"srv_1","name":"web1","lastaddress":"1.2.3.4","lastconn":1714987234,"datecreated":1700000000,"plan":"1gb","available_runtimes":["php8.3"]}]}`))
+	})
+	api := NewServersAPI(c, NewTTLCache(60))
+	got, err := api.List()
+	if err != nil {
+		t.Fatalf("decode failed (the ServerPilot API returns lastconn as a number): %v", err)
+	}
+	if len(got) != 1 || got[0].LastConn != 1714987234 {
+		t.Fatalf("LastConn = %d, want 1714987234", got[0].LastConn)
+	}
+}
+
 func TestServersAPI_Resolve_NotFound(t *testing.T) {
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/servers" {

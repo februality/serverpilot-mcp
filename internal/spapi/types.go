@@ -7,7 +7,7 @@ type SPServer struct {
 	Firewall           bool     `json:"firewall"`
 	DenyUnknownDomains bool     `json:"deny_unknown_domains"`
 	LastAddress        string   `json:"lastaddress"`
-	LastConn           string   `json:"lastconn"`
+	LastConn           int64    `json:"lastconn"`
 	DateCreated        int64    `json:"datecreated"`
 	Plan               string   `json:"plan"`
 	AvailableRuntimes  []string `json:"available_runtimes"`
