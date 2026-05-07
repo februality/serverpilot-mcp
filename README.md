@@ -1,6 +1,6 @@
 # ServerPilot MCP
 
-Manage [ServerPilot](https://serverpilot.io)-hosted sites from Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, or Codex CLI through a single static binary. No runtime dependencies; no hand-edited config files.
+Manage [ServerPilot](https://serverpilot.io)-hosted sites from Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, or Codex CLI through a single static binary. Built on the [ServerPilot API](https://github.com/ServerPilot/API) and SSH. No runtime dependencies; no hand-edited config files.
 
 > This is an independent, community-built project and is not affiliated with, endorsed by, or sponsored by ServerPilot. "ServerPilot" is a trademark of its respective owner; it is used here only to describe the service this tool integrates with.
 
@@ -24,15 +24,15 @@ After the installer downloads the binary, it launches a setup wizard. Step throu
 
 1. **Paste your Client ID** when prompted, then **paste your API Key** (input is hidden). The wizard verifies them against the ServerPilot API and prints a server / app count on success. It stores them in your OS keychain (or a `0600` file on headless Linux). If you want to bypass the keychain, hit Ctrl+C and re-run with `SERVERPILOT_CLIENT_ID=... SERVERPILOT_API_KEY=... serverpilot-mcp setup`.
 2. **Confirm SSH key assignment** (default: Yes). The wizard generates an Ed25519 key at `~/.ssh/serverpilot-mcp`, registers it with ServerPilot, and assigns it to every sysuser on your account. Re-running the wizard later is safe — already-assigned users are skipped.
-3. **Pick which MCP clients to patch** from the multi-select list. Detected clients are pre-checked; press space to toggle, enter to confirm. Skip anything you don't want touched.
-4. **Restart your MCP client** (quit and relaunch Claude Code, Cursor, etc.). The 15 tools listed below are now available.
+3. **Pick which AI tools to patch** from the multi-select list. Detected tools are pre-checked; press space to toggle, enter to confirm. Skip anything you don't want touched.
+4. **Restart your AI tool** (quit and relaunch Claude Code, Cursor, etc.). The 15 tools listed below are now available.
 5. **Verify** with `serverpilot-mcp doctor` — checks credentials, hits the API, and inspects each patched client config.
 
 If anything looks off, `serverpilot-mcp status` shows what's configured and where, and `serverpilot-mcp setup` is always re-runnable.
 
 ## Use it
 
-Once the wizard is done and your MCP client has been restarted, just talk to it. Below are five tasks — light to heavy — that normally measure in hours of careful work, delegated in one sentence each.
+Once the wizard is done and your AI tool has been restarted, just talk to it. Below are five tasks — light to heavy — that normally measure in hours of careful work, delegated in one sentence each.
 
 ### 1. Get the full picture of a site
 
@@ -185,7 +185,7 @@ Once the wizard is done and your MCP client has been restarted, just talk to it.
 serverpilot-mcp setup                       # Interactive wizard (re-runs are safe)
 serverpilot-mcp status [--json]             # What's configured and where
 serverpilot-mcp doctor                      # Verify creds, API ping, per-client config
-serverpilot-mcp install --all               # Patch every detected MCP client
+serverpilot-mcp install --all               # Patch every detected AI tool
 serverpilot-mcp install --client cursor     # Just one
 serverpilot-mcp install --all --dry-run     # Preview diffs without writing
 serverpilot-mcp uninstall --all             # Reverse the install
@@ -298,6 +298,8 @@ go test ./...
 ```
 
 ## Security notes
+
+> ⚠️ **Safety.** We deliberately left out the API tools for deleting sites, servers, sysusers, and databases, so your model can't tear those down through ServerPilot itself. But it can still do plenty of damage if you're not careful: it has shell access as your sysuser, so it can `rm -rf` your site files, drop database tables, overwrite files with no backup, change PHP runtimes, and reset database passwords. Read what it's about to do before you approve it, and keep your own backups.
 
 - **Credentials** are stored in the OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service) or a `0600` file in your config directory if no keychain is available. Env vars override both.
 - **SSH host keys** are pinned on first contact (TOFU) into `~/.ssh/serverpilot-mcp_known_hosts`, separate from your personal `known_hosts`. A subsequent mismatch fails loud and refuses to connect; remove the offending line manually if you genuinely re-imaged the server.
