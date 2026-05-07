@@ -22,14 +22,12 @@ type poolEntry struct {
 }
 
 // Pool reuses SSH connections per user@host with a 60-second idle timeout
-// and a 30-second cleanup sweep.
-//
-// SECURITY NOTE: this pool currently uses InsecureIgnoreHostKey().
-// Hardening (known_hosts on disk + first-time trust prompt) is tracked
-// as a follow-up.
+// and a 30-second cleanup sweep. Host-key verification is delegated to a
+// HostKeyVerifier (see knownhosts.go).
 type Pool struct {
 	keyPath   string
 	timeoutMs int
+	verifier  *HostKeyVerifier
 
 	mu       sync.Mutex
 	entries  map[string]*poolEntry
@@ -37,10 +35,11 @@ type Pool struct {
 	stopOnce sync.Once
 }
 
-func NewPool(keyPath string, timeoutMs int) *Pool {
+func NewPool(keyPath string, timeoutMs int, verifier *HostKeyVerifier) *Pool {
 	p := &Pool{
 		keyPath:   keyPath,
 		timeoutMs: timeoutMs,
+		verifier:  verifier,
 		entries:   make(map[string]*poolEntry),
 		stopCh:    make(chan struct{}),
 	}
@@ -103,7 +102,7 @@ func (p *Pool) dial(host, user string) (*xssh.Client, error) {
 	cfg := &xssh.ClientConfig{
 		User:            user,
 		Auth:            []xssh.AuthMethod{xssh.PublicKeys(signer)},
-		HostKeyCallback: xssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: p.verifier.Callback(),
 		Timeout:         time.Duration(p.timeoutMs) * time.Millisecond,
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(22))

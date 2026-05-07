@@ -14,20 +14,25 @@ import (
 )
 
 type Config struct {
-	ClientID        string
-	APIKey          string
-	CredsSource     creds.Source
-	SSHKeyPath      string
-	SSHKeyName      string
-	CacheTTLSeconds int
-	SSHTimeoutMs    int
+	ClientID          string
+	APIKey            string
+	CredsSource       creds.Source
+	SSHKeyPath        string
+	SSHKeyName        string
+	KnownHostsPath    string
+	CacheTTLSeconds   int
+	SSHTimeoutMs      int
+	SiteExecTimeoutMs int
+	InsecureHostKey   bool
 }
 
 const (
-	DefaultSSHKeyPath  = "~/.ssh/serverpilot-mcp"
-	DefaultSSHKeyName  = "claude-mcp-serverpilot"
-	DefaultCacheTTLSec = 300
-	DefaultSSHTimeout  = 30000
+	DefaultSSHKeyPath        = "~/.ssh/serverpilot-mcp"
+	DefaultSSHKeyName        = "claude-mcp-serverpilot"
+	DefaultKnownHostsPath    = "~/.ssh/serverpilot-mcp_known_hosts"
+	DefaultCacheTTLSec       = 300
+	DefaultSSHTimeout        = 30000
+	DefaultSiteExecTimeoutMs = 120000
 )
 
 // ErrNoCredentials is returned by Load when neither environment vars nor
@@ -60,14 +65,26 @@ func Load() (*Config, error) {
 		sshKeyName = DefaultSSHKeyName
 	}
 
+	knownHostsPath := os.Getenv("SP_KNOWN_HOSTS_PATH")
+	if knownHostsPath == "" {
+		knownHostsPath = DefaultKnownHostsPath
+	}
+	expandedKnownHosts, err := ExpandHome(knownHostsPath)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
-		ClientID:        resolved.ClientID,
-		APIKey:          resolved.APIKey,
-		CredsSource:     resolved.Source,
-		SSHKeyPath:      expanded,
-		SSHKeyName:      sshKeyName,
-		CacheTTLSeconds: intEnv("SP_CACHE_TTL_SECONDS", DefaultCacheTTLSec),
-		SSHTimeoutMs:    intEnv("SP_SSH_TIMEOUT_MS", DefaultSSHTimeout),
+		ClientID:          resolved.ClientID,
+		APIKey:            resolved.APIKey,
+		CredsSource:       resolved.Source,
+		SSHKeyPath:        expanded,
+		SSHKeyName:        sshKeyName,
+		KnownHostsPath:    expandedKnownHosts,
+		CacheTTLSeconds:   intEnv("SP_CACHE_TTL_SECONDS", DefaultCacheTTLSec),
+		SSHTimeoutMs:      intEnv("SP_SSH_TIMEOUT_MS", DefaultSSHTimeout),
+		SiteExecTimeoutMs: intEnv("SP_SITE_EXEC_TIMEOUT_MS", DefaultSiteExecTimeoutMs),
+		InsecureHostKey:   os.Getenv("SP_INSECURE_DISABLE_HOST_KEY_CHECK") == "1",
 	}, nil
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -105,6 +107,30 @@ type appSummary struct {
 	SSL       string   `json:"ssl"` // "auto" | "custom" | "none"
 	ServerID  string   `json:"serverid"`
 	WordPress bool     `json:"wordpress"`
+}
+
+// appDetail is the locked-down shape returned by sp_get_app. It deliberately
+// omits SPSSL.{Key,Cert,CACerts} and SPWordPress.AdminPassword — secrets
+// readable from the server itself (wp-config.php, /etc/letsencrypt/...) via
+// site_read_file when needed.
+type appDetail struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Domains     []string      `json:"domains"`
+	Runtime     string        `json:"runtime"`
+	SSL         string        `json:"ssl"` // "auto" | "custom" | "none"
+	AutoSSL     bool          `json:"autossl"`
+	ServerID    string        `json:"serverid"`
+	SysUserID   string        `json:"sysuserid"`
+	DateCreated int64         `json:"datecreated"`
+	WordPress   *wpPublicInfo `json:"wordpress,omitempty"`
+}
+
+type wpPublicInfo struct {
+	SiteTitle  string `json:"site_title"`
+	AdminUser  string `json:"admin_user"`
+	AdminEmail string `json:"admin_email"`
+	LoginURL   string `json:"login_url"`
 }
 
 type databaseSummary struct {
@@ -228,7 +254,26 @@ func handleGetApp(d *Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return errResult(err)
 		}
-		return jsonText(app)
+		detail := appDetail{
+			ID:          app.ID,
+			Name:        app.Name,
+			Domains:     app.Domains,
+			Runtime:     app.Runtime,
+			SSL:         sslLabel(app),
+			AutoSSL:     app.AutoSSL,
+			ServerID:    app.ServerID,
+			SysUserID:   app.SysUserID,
+			DateCreated: app.DateCreated,
+		}
+		if app.WordPress != nil {
+			detail.WordPress = &wpPublicInfo{
+				SiteTitle:  app.WordPress.SiteTitle,
+				AdminUser:  app.WordPress.AdminUser,
+				AdminEmail: app.WordPress.AdminEmail,
+				LoginURL:   app.WordPress.LoginURL,
+			}
+		}
+		return jsonText(detail)
 	}
 }
 
@@ -245,6 +290,16 @@ func handleUpdateAppRuntime(d *Deps) server.ToolHandlerFunc {
 		app, err := d.Apps.Resolve(appID)
 		if err != nil {
 			return errResult(err)
+		}
+		srv, err := d.Servers.Resolve(app.ServerID)
+		if err != nil {
+			return errResult(err)
+		}
+		if !slices.Contains(srv.AvailableRuntimes, runtime) {
+			return errResult(fmt.Errorf(
+				"runtime %q not available on server %q. Available: %s",
+				runtime, srv.Name, strings.Join(srv.AvailableRuntimes, ", "),
+			))
 		}
 		res, err := d.Apps.UpdateRuntime(app.ID, runtime)
 		if err != nil {

@@ -36,7 +36,8 @@ func Build(cfg *config.Config) *Deps {
 	sysusers := spapi.NewSysUsersAPI(client, cache)
 	databases := spapi.NewDatabasesAPI(client, cache)
 	sshkeys := spapi.NewSSHKeysAPI(client)
-	pool := mcsh.NewPool(cfg.SSHKeyPath, cfg.SSHTimeoutMs)
+	verifier := mcsh.NewHostKeyVerifier(cfg.KnownHostsPath, cfg.InsecureHostKey)
+	pool := mcsh.NewPool(cfg.SSHKeyPath, cfg.SSHTimeoutMs, verifier)
 	return &Deps{
 		Cfg:       cfg,
 		Cache:     cache,

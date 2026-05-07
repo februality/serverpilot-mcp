@@ -27,7 +27,7 @@ func toolSiteExec() mcp.Tool {
 		mcp.WithString("site", mcp.Required(), mcp.Description("Site identifier: app name or domain")),
 		mcp.WithString("command", mcp.Required(), mcp.Description("Shell command to execute")),
 		mcp.WithString("working_directory", mcp.Description("Working directory (relative to /srv/users/USERNAME/ or absolute). Defaults to app's public directory.")),
-		mcp.WithNumber("timeout", mcp.Description("Command timeout in milliseconds (default: 30000)")),
+		mcp.WithNumber("timeout", mcp.Description("Command timeout in milliseconds. Defaults to SP_SITE_EXEC_TIMEOUT_MS (120000ms = 2 minutes). Pass 0 to disable the timeout.")),
 	)
 }
 
@@ -70,7 +70,12 @@ func handleSiteExec(d *Deps) server.ToolHandlerFunc {
 			return errResult(err)
 		}
 		workingDir := req.GetString("working_directory", "")
-		timeoutMs := int(req.GetFloat("timeout", 0))
+		// Sentinel -1 distinguishes "param omitted" (use configured default)
+		// from "param=0" (explicit no-timeout opt-out).
+		timeoutMs := int(req.GetFloat("timeout", -1))
+		if timeoutMs < 0 {
+			timeoutMs = d.Cfg.SiteExecTimeoutMs
+		}
 
 		resolved, err := d.Resolver.Resolve(site)
 		if err != nil {

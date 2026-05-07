@@ -109,6 +109,8 @@ func TestUpdateAppRuntime_TextOutput(t *testing.T) {
 		switch {
 		case r.URL.Path == "/apps" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"data":[{"id":"app_1","name":"BlogSite","autossl":false,"ssl":null,"domains":["x.com"],"serverid":"s1","sysuserid":"u1"}]}`))
+		case r.URL.Path == "/servers/s1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":{"id":"s1","name":"web1","available_runtimes":["php8.0","php8.3"]}}`))
 		case r.URL.Path == "/apps/app_1" && r.Method == http.MethodPost:
 			_, _ = w.Write([]byte(`{"actionid":"act_42","data":{}}`))
 		default:
@@ -119,6 +121,37 @@ func TestUpdateAppRuntime_TextOutput(t *testing.T) {
 	want := `PHP runtime for "BlogSite" updated to php8.3. Action ID: act_42`
 	if out != want {
 		t.Errorf("got %q\nwant %q", out, want)
+	}
+}
+
+func TestUpdateAppRuntime_RejectsUnavailableRuntime(t *testing.T) {
+	d, _ := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/apps" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":[{"id":"app_1","name":"BlogSite","autossl":false,"ssl":null,"domains":["x.com"],"serverid":"s1","sysuserid":"u1"}]}`))
+		case r.URL.Path == "/servers/s1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":{"id":"s1","name":"web1","available_runtimes":["php8.0","php8.3"]}}`))
+		case r.URL.Path == "/apps/app_1" && r.Method == http.MethodPost:
+			t.Fatalf("UpdateRuntime should not have been called for an invalid runtime")
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	var req mcp.CallToolRequest
+	req.Params.Arguments = map[string]any{"app": "BlogSite", "runtime": "php9.9"}
+	res, err := handleUpdateAppRuntime(d)(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error result for unavailable runtime")
+	}
+	for _, c := range res.Content {
+		if tc, ok := c.(mcp.TextContent); ok {
+			if !strings.Contains(tc.Text, "not available") || !strings.Contains(tc.Text, "php8.0, php8.3") {
+				t.Errorf("unexpected error message: %s", tc.Text)
+			}
+		}
 	}
 }
 
@@ -159,6 +192,52 @@ func TestUpdateDBPassword_RejectsShortPassword(t *testing.T) {
 				t.Errorf("unexpected error message: %s", tc.Text)
 			}
 		}
+	}
+}
+
+func TestGetApp_RedactsSecrets(t *testing.T) {
+	const adminPassword = "wp-admin-supersecret-123"
+	const sslKeyMarker = "SENSITIVEKEYMATERIAL"
+	const sslKey = `-----BEGIN PRIVATE KEY-----\n` + sslKeyMarker + `\n-----END PRIVATE KEY-----`
+	d, _ := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/apps/app_1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":{
+			  "id":"app_1","name":"BlogSite","sysuserid":"u1","serverid":"s1","runtime":"php8.3",
+			  "autossl":false,"domains":["x.com"],"datecreated":1700000000,
+			  "ssl":{"key":"` + sslKey + `","cert":"CERTBODY","cacerts":null,"auto":false,"force":true},
+			  "wordpress":{"site_title":"My Blog","admin_user":"admin","admin_password":"` + adminPassword + `","admin_email":"a@x.com","login_url":"https://x.com/wp-admin"}
+			}}`))
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	out := callText(t, handleGetApp(d), map[string]any{"app": "app_1"})
+	if strings.Contains(out, adminPassword) {
+		t.Errorf("output leaked WordPress admin password:\n%s", out)
+	}
+	if strings.Contains(out, sslKeyMarker) {
+		t.Errorf("output leaked SSL private key:\n%s", out)
+	}
+	if strings.Contains(out, "CERTBODY") {
+		t.Errorf("output leaked SSL cert body:\n%s", out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if got["ssl"] != "custom" {
+		t.Errorf("ssl label = %v, want \"custom\"", got["ssl"])
+	}
+	wp, ok := got["wordpress"].(map[string]any)
+	if !ok {
+		t.Fatalf("wordpress not present or wrong shape: %v", got["wordpress"])
+	}
+	if wp["admin_user"] != "admin" {
+		t.Errorf("admin_user = %v", wp["admin_user"])
+	}
+	if _, hasPw := wp["admin_password"]; hasPw {
+		t.Errorf("admin_password key should not be present in output")
 	}
 }
 
