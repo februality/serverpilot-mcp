@@ -30,9 +30,9 @@ After the installer downloads the binary, it launches a setup wizard. Step throu
 
 If anything looks off, `serverpilot-mcp status` shows what's configured and where, and `serverpilot-mcp setup` is always re-runnable.
 
-## Use it
+## Usage examples
 
-Once the wizard is done and your AI tool has been restarted, just talk to it. Below are five tasks — light to heavy — that normally measure in hours of careful work, delegated in one sentence each.
+Once the wizard is done and your AI tool has been restarted, just talk to it. Below are five example tasks — light to heavy — that normally measure in hours of careful work, delegated in one sentence each. Prompts and agent responses are illustrative; your own runs will use your real sites and data.
 
 ### 1. Get the full picture of a site
 
