@@ -10,7 +10,7 @@ import (
 
 const (
 	ServerName    = "serverpilot"
-	ServerVersion = "2.0.0-dev"
+	ServerVersion = "2.0.0"
 )
 
 type Deps struct {
