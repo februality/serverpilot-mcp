@@ -215,7 +215,12 @@ func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers
 		return nil
 	}
 	var added, skipped, failed int
-	for _, u := range users {
+	total := len(users)
+	for i, u := range users {
+		// In-place progress line: \r returns to col 0, \033[K clears to EOL
+		// so a shorter sysuser name doesn't leave residue from a longer one.
+		fmt.Fprintf(w, "\r  Assigning SSH key… [%d/%d] %s\033[K", i+1, total, u.Name)
+
 		userKeys, err := sshkeys.ListForSysUser(u.ID)
 		if err != nil {
 			failed++
@@ -238,6 +243,8 @@ func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers
 		}
 		added++
 	}
+	// Clear the progress line, then write the summary on its own line.
+	fmt.Fprint(w, "\r\033[K")
 	fmt.Fprintf(w, "  ✓ SSH key assignments: %d added, %d already had it, %d failed\n\n",
 		added, skipped, failed)
 	return nil
