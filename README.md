@@ -2,6 +2,8 @@
 
 Manage [ServerPilot](https://serverpilot.io)-hosted sites from Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, or Codex CLI through a single static binary. No runtime dependencies; no hand-edited config files.
 
+> This is an independent, community-built project and is not affiliated with, endorsed by, or sponsored by ServerPilot. "ServerPilot" is a trademark of its respective owner; it is used here only to describe the service this tool integrates with.
+
 ## Install
 
 **macOS / Linux:**
