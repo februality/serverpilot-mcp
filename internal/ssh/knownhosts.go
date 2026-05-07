@@ -109,9 +109,9 @@ func appendLine(path, line string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	if _, err := f.WriteString(line + "\n"); err != nil {
+		_ = f.Close()
 		return err
 	}
-	return nil
+	return f.Close()
 }
