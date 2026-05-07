@@ -12,7 +12,10 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/februality/serverpilot-mcp/internal/clients"
 	"github.com/februality/serverpilot-mcp/internal/config"
 	"github.com/februality/serverpilot-mcp/internal/creds"
@@ -171,6 +174,86 @@ func storeCreds(w io.Writer, clientID, apiKey string) error {
 	return nil
 }
 
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// keyProgress renders a 3-line spinner+bar block in-place while sysuser
+// SSH-key assignments run serially. The spinner is animated by a goroutine
+// so a slow API call to a single user still shows liveness.
+type keyProgress struct {
+	w     io.Writer
+	bar   progress.Model
+	total int
+
+	mu    sync.Mutex
+	cur   int
+	frame int
+	drawn bool
+
+	stop chan struct{}
+	done chan struct{}
+}
+
+func newKeyProgress(w io.Writer, total int) *keyProgress {
+	return &keyProgress{
+		w:     w,
+		bar:   progress.New(progress.WithDefaultGradient()),
+		total: total,
+		stop:  make(chan struct{}),
+		done:  make(chan struct{}),
+	}
+}
+
+func (p *keyProgress) start() {
+	go func() {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		defer close(p.done)
+		for {
+			select {
+			case <-p.stop:
+				return
+			case <-t.C:
+				p.mu.Lock()
+				p.frame = (p.frame + 1) % len(spinnerFrames)
+				p.draw()
+				p.mu.Unlock()
+			}
+		}
+	}()
+}
+
+func (p *keyProgress) advance() {
+	p.mu.Lock()
+	p.cur++
+	p.draw()
+	p.mu.Unlock()
+}
+
+func (p *keyProgress) draw() {
+	if p.drawn {
+		// \033[2F: cursor up 2 lines, column 0. \033[J: clear to end of screen.
+		fmt.Fprint(p.w, "\033[2F\033[J")
+	}
+	pct := 0.0
+	if p.total > 0 {
+		pct = float64(p.cur) / float64(p.total)
+	}
+	fmt.Fprintf(p.w, "%s Registering SSH keys...\n\n  %s\n",
+		spinnerFrames[p.frame], p.bar.ViewAs(pct))
+	p.drawn = true
+}
+
+func (p *keyProgress) finish(msg string) {
+	close(p.stop)
+	<-p.done
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.drawn {
+		fmt.Fprint(p.w, "\033[2F\033[J")
+	}
+	fmt.Fprintln(p.w, msg)
+}
+
 func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers *spapi.SysUsersAPI) error {
 	// Generate / load SSH key.
 	pair, err := mcsh.EnsureKeyPair(opts.SSHKeyPath, opts.SSHKeyName)
@@ -214,16 +297,14 @@ func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers
 		fmt.Fprintln(w, "  · Skipping sysuser assignment (you can re-run with sp_ssh_setup)")
 		return nil
 	}
-	var added, skipped, failed int
-	total := len(users)
-	for i, u := range users {
-		// In-place progress line: \r returns to col 0, \033[K clears to EOL
-		// so a shorter sysuser name doesn't leave residue from a longer one.
-		fmt.Fprintf(w, "\r  Assigning SSH key… [%d/%d] %s\033[K", i+1, total, u.Name)
-
+	prog := newKeyProgress(w, len(users))
+	prog.start()
+	anyFailed := false
+	for _, u := range users {
 		userKeys, err := sshkeys.ListForSysUser(u.ID)
 		if err != nil {
-			failed++
+			anyFailed = true
+			prog.advance()
 			continue
 		}
 		has := false
@@ -233,20 +314,18 @@ func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers
 				break
 			}
 		}
-		if has {
-			skipped++
-			continue
+		if !has {
+			if err := sshkeys.AddToSysUser(spKey.ID, u.ID); err != nil {
+				anyFailed = true
+			}
 		}
-		if err := sshkeys.AddToSysUser(spKey.ID, u.ID); err != nil {
-			failed++
-			continue
-		}
-		added++
+		prog.advance()
 	}
-	// Clear the progress line, then write the summary on its own line.
-	fmt.Fprint(w, "\r\033[K")
-	fmt.Fprintf(w, "  ✓ SSH key assignments: %d added, %d already had it, %d failed\n\n",
-		added, skipped, failed)
+	if anyFailed {
+		prog.finish("  ⚠ SSH keys registered (some failed)")
+	} else {
+		prog.finish("  ✓ SSH keys registered")
+	}
 	return nil
 }
 
