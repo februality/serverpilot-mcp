@@ -68,16 +68,30 @@ Once the wizard is done and your AI tool has been restarted, just talk to it. Be
 >
 > Anything you want to dig into?
 
-### 2. Rotate database credentials end-to-end
+### 2. Reclaim disk space on a near-full server
 
-> **You:** Rotate the database password for example.com and update wp-config.php to match. No downtime.
+> **You:** web1 is at 92% disk. Find what's filling it and tell me what's safe to delete.
 >
-> **Agent:** Generated a 32-char password and rotated it on database `example_wp` (action `act_a4f9`). Edited `wp-config.php` line 30:
-> ```diff
-> - define('DB_PASSWORD', 'old-password-here');
-> + define('DB_PASSWORD', 'gN7p…rA2K');
+> **Agent:** Audited web1 (24 GB / 26 GB used). The big buckets:
+>
 > ```
-> ServerPilot's password change is atomic on the MySQL side, and PHP-FPM picks up the new `wp-config.php` on the next request — no restart, no downtime. Verified: `curl -sI https://example.com/` → `200 OK`.
+> 14.2 GB  apps/example/wp-content/uploads          (live customer media)
+>  4.8 GB  apps/oldproject/wp-content/cache         (last write 2025-11)
+>  2.1 GB  apps/example/wp-content/backups          (14 plugin-generated copies)
+>  1.1 GB  apps/staging/wp-content/debug.log        (WP_DEBUG_LOG left on since Feb)
+>  870 MB  /tmp on web1                             (orphaned PHP session files, oldest 2025-08)
+> ```
+>
+> **Safe to reclaim (~7.6 GB):**
+> - `oldproject` cache — site last received traffic in November; regenerates on demand.
+> - 11 of 14 `example` backup-plugin copies (keep the 3 most recent).
+> - `staging/debug.log` — and toggle `WP_DEBUG_LOG` off so it doesn't refill.
+> - `/tmp` session files older than 7 days.
+>
+> **Leaving alone:**
+> - `example/wp-content/uploads` (14 GB) — real customer media; needs your call before pruning.
+>
+> Want me to run the cleanup? Each step is a single `site_exec` you can approve or skip.
 
 ### 3. Plan a PHP sunset across the fleet
 
@@ -128,13 +142,13 @@ Once the wizard is done and your AI tool has been restarted, just talk to it. Be
 
 ### 5. Migrate a site between ServerPilot servers
 
-> **You:** Migrate example.com from web1 to web2. Generate a fresh database password, rewrite anything that references the old path, smoke-test the new server, and tell me when it's ready for DNS cutover.
+> **You:** Migrate example.com from web1 to web2. Rewrite anything that references the old path, smoke-test the new server, and tell me when it's ready for DNS cutover.
 >
 > **Agent:** Walking through it.
 >
 > **Provision (ServerPilot API)**
 > - Created app `example` on web2, sysuser `exampleuser2` (action `act_5021`).
-> - Created database `example_wp` with a freshly-generated 32-char password (action `act_5022`).
+> - Created database `example_wp` (action `act_5022`).
 > - Set runtime to `php8.3` to match the source.
 >
 > **Migrate**
@@ -147,7 +161,7 @@ Once the wizard is done and your AI tool has been restarted, just talk to it. Be
 > ```
 >
 > **Rewrite**
-> - Updated `wp-config.php`: `DB_NAME`, `DB_USER`, `DB_PASSWORD`; table prefix kept identical.
+> - Updated `wp-config.php` to point at the new database; table prefix kept identical.
 > - `wp search-replace '/srv/users/exampleuser/apps/example' '/srv/users/exampleuser2/apps/example' --all-tables --skip-columns=guid` → 18 replacements across 4 tables.
 >
 > **Smoke test**
