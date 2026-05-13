@@ -12,6 +12,7 @@ func NewSetup() *cobra.Command {
 		skipSSH     bool
 		skipClients bool
 		onlyClients []string
+		readOnly    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -24,6 +25,7 @@ func NewSetup() *cobra.Command {
 				SkipSSH:     skipSSH,
 				SkipClients: skipClients,
 				OnlyClients: onlyClients,
+				ReadOnly:    readOnly,
 			})
 		},
 	}
@@ -31,5 +33,6 @@ func NewSetup() *cobra.Command {
 	cmd.Flags().BoolVar(&skipSSH, "skip-ssh", false, "skip SSH key generation/registration")
 	cmd.Flags().BoolVar(&skipClients, "skip-clients", false, "skip MCP-client config patching")
 	cmd.Flags().StringSliceVar(&onlyClients, "client", nil, "limit to specific client IDs (repeatable)")
+	cmd.Flags().BoolVar(&readOnly, "read-only", false, "bake SP_READ_ONLY=1 into client configs (hides write tools). In interactive mode, also pre-selects the read-only prompt.")
 	return cmd
 }

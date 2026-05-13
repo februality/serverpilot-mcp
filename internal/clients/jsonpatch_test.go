@@ -22,7 +22,7 @@ func newPatcherFor(t *testing.T) (jsonPatcher, string) {
 
 func TestJSONPatch_FileNotExists(t *testing.T) {
 	p, path := newPatcherFor(t)
-	changed, _, err := p.patch(newStdioEntry(binPath), false)
+	changed, _, err := p.patch(newStdioEntry(binPath, nil), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestJSONPatch_PreservesOtherServers(t *testing.T) {
 	if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, _, err := p.patch(newStdioEntry(binPath), false)
+	changed, _, err := p.patch(newStdioEntry(binPath, nil), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,12 +73,12 @@ func TestJSONPatch_PreservesOtherServers(t *testing.T) {
 func TestJSONPatch_NoChangeIfIdentical(t *testing.T) {
 	p, path := newPatcherFor(t)
 	// First write.
-	if _, _, err := p.patch(newStdioEntry(binPath), false); err != nil {
+	if _, _, err := p.patch(newStdioEntry(binPath, nil), false); err != nil {
 		t.Fatal(err)
 	}
 	stat1, _ := os.Stat(path)
 	// Second write — should be no-op.
-	changed, _, err := p.patch(newStdioEntry(binPath), false)
+	changed, _, err := p.patch(newStdioEntry(binPath, nil), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestJSONPatch_UpdatesStaleEntry(t *testing.T) {
 	if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, _, err := p.patch(newStdioEntry(binPath), false)
+	changed, _, err := p.patch(newStdioEntry(binPath, nil), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestJSONPatch_RefusesMalformed(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not json {{{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := p.patch(newStdioEntry(binPath), false)
+	_, _, err := p.patch(newStdioEntry(binPath, nil), false)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -131,7 +131,7 @@ func TestJSONPatch_RefusesMalformed(t *testing.T) {
 
 func TestJSONPatch_DryRunDoesNotWrite(t *testing.T) {
 	p, path := newPatcherFor(t)
-	changed, diff, err := p.patch(newStdioEntry(binPath), true)
+	changed, diff, err := p.patch(newStdioEntry(binPath, nil), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestJSONPatch_DryRunDoesNotWrite(t *testing.T) {
 
 func TestJSONPatch_Unpatch(t *testing.T) {
 	p, path := newPatcherFor(t)
-	if _, _, err := p.patch(newStdioEntry(binPath), false); err != nil {
+	if _, _, err := p.patch(newStdioEntry(binPath, nil), false); err != nil {
 		t.Fatal(err)
 	}
 	// Add another server so we can verify it survives.
@@ -183,5 +183,62 @@ func TestJSONPatch_UnpatchMissing(t *testing.T) {
 	}
 	if changed {
 		t.Error("expected no change for missing file")
+	}
+}
+
+func TestJSONPatch_NilEnvOmitsBlock(t *testing.T) {
+	p, path := newPatcherFor(t)
+	if _, _, err := p.patch(newStdioEntry(binPath, nil), false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if gjson.GetBytes(b, "mcpServers.serverpilot.env").Exists() {
+		t.Errorf("nil env should not emit env key. got: %s", b)
+	}
+}
+
+func TestJSONPatch_WritesEnvBlock(t *testing.T) {
+	p, path := newPatcherFor(t)
+	env := map[string]string{"SP_READ_ONLY": "1", "OTHER": "x"}
+	if _, _, err := p.patch(newStdioEntry(binPath, env), false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if got := gjson.GetBytes(b, "mcpServers.serverpilot.env.SP_READ_ONLY").String(); got != "1" {
+		t.Errorf("SP_READ_ONLY = %q, want %q", got, "1")
+	}
+	if got := gjson.GetBytes(b, "mcpServers.serverpilot.env.OTHER").String(); got != "x" {
+		t.Errorf("OTHER = %q, want %q", got, "x")
+	}
+}
+
+func TestJSONPatch_CurrentEnv(t *testing.T) {
+	p, _ := newPatcherFor(t)
+
+	// File not yet written.
+	env, err := p.currentEnv()
+	if err != nil || env != nil {
+		t.Errorf("currentEnv on missing file: env=%v err=%v", env, err)
+	}
+
+	// File exists, no env block.
+	if _, _, err := p.patch(newStdioEntry(binPath, nil), false); err != nil {
+		t.Fatal(err)
+	}
+	env, err = p.currentEnv()
+	if err != nil || env != nil {
+		t.Errorf("currentEnv with no env block: env=%v err=%v", env, err)
+	}
+
+	// File exists, with env.
+	if _, _, err := p.patch(newStdioEntry(binPath, map[string]string{"SP_READ_ONLY": "1"}), false); err != nil {
+		t.Fatal(err)
+	}
+	env, err = p.currentEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["SP_READ_ONLY"] != "1" {
+		t.Errorf("currentEnv = %v, want SP_READ_ONLY=1", env)
 	}
 }

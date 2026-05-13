@@ -202,6 +202,7 @@ serverpilot-mcp doctor                      # Verify creds, API ping, per-client
 serverpilot-mcp install --all               # Patch every detected AI tool
 serverpilot-mcp install --client cursor     # Just one
 serverpilot-mcp install --all --dry-run     # Preview diffs without writing
+serverpilot-mcp install --all --read-only   # Hide every write tool (see Security notes)
 serverpilot-mcp uninstall --all             # Reverse the install
 serverpilot-mcp uninstall --remove-creds    # Also wipe stored credentials
 serverpilot-mcp uninstall --remove-key      # Also delete the local SSH key
@@ -299,6 +300,7 @@ Environment variables (all optional except credentials):
 | `SP_SSH_TIMEOUT_MS` | `30000` | SSH connection timeout |
 | `SP_SITE_EXEC_TIMEOUT_MS` | `120000` | `site_exec` default timeout. Pass `timeout: 0` from the tool call to disable. |
 | `SP_INSECURE_DISABLE_HOST_KEY_CHECK` | unset | Set to `1` to bypass host-key verification (testing only — logs a warning) |
+| `SP_READ_ONLY` | unset | Set to `1` to hide every write tool (`site_exec`, `site_write_file`, `sp_update_app_runtime`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`) so the AI tool can read but cannot change anything. `setup` and `install` both accept `--read-only` to bake this into the client config. |
 
 ## Building from source
 
@@ -314,6 +316,8 @@ go test ./...
 ## Security notes
 
 > ⚠️ **Safety.** We deliberately left out the API tools for deleting sites, servers, sysusers, and databases, so your model can't tear those down through ServerPilot itself. But it can still do plenty of damage if you're not careful: it has shell access as your sysuser, so it can `rm -rf` your site files, drop database tables, overwrite files with no backup, change PHP runtimes, and reset database passwords. Read what it's about to do before you approve it, and keep your own backups.
+>
+> **Read-only mode.** If you'd rather not give the AI tool any way to change things, run `serverpilot-mcp setup --read-only` (or pass `--read-only` to `install`). The MCP server will start up with the six write tools (`site_exec`, `site_write_file`, `sp_update_app_runtime`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`) hidden — the model never sees them in `tools/list`, so it's technically unable to call them. `serverpilot-mcp status` shows which clients are configured this way.
 
 - **Credentials** are stored in the OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service) or a `0600` file in your config directory if no keychain is available. Env vars override both.
 - **SSH host keys** are pinned on first contact (TOFU) into `~/.ssh/serverpilot-mcp_known_hosts`, separate from your personal `known_hosts`. A subsequent mismatch fails loud and refuses to connect; remove the offending line manually if you genuinely re-imaged the server.

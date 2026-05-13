@@ -13,18 +13,23 @@ import (
 	"github.com/februality/serverpilot-mcp/internal/spapi"
 )
 
-// RegisterAPITools registers the 8 ServerPilot API tools on the given server.
+// RegisterAPITools registers the ServerPilot API tools on the given server.
 // Tool names, input schemas, and JSON output shapes are part of the public
 // contract — downstream skills parse them, so changes are backwards-incompatible.
+//
+// Writes (sp_update_app_runtime, sp_update_db_password) are skipped when
+// d.Cfg.ReadOnly is true so they never appear in tools/list.
 func RegisterAPITools(s *server.MCPServer, d *Deps) {
 	s.AddTool(toolListServers(), handleListServers(d))
 	s.AddTool(toolGetServer(), handleGetServer(d))
 	s.AddTool(toolListApps(), handleListApps(d))
 	s.AddTool(toolGetApp(), handleGetApp(d))
-	s.AddTool(toolUpdateAppRuntime(), handleUpdateAppRuntime(d))
 	s.AddTool(toolListDatabases(), handleListDatabases(d))
-	s.AddTool(toolUpdateDBPassword(), handleUpdateDBPassword(d))
 	s.AddTool(toolListSysUsers(), handleListSysUsers(d))
+	if !d.Cfg.ReadOnly {
+		s.AddTool(toolUpdateAppRuntime(), handleUpdateAppRuntime(d))
+		s.AddTool(toolUpdateDBPassword(), handleUpdateDBPassword(d))
+	}
 }
 
 // ---- Tool definitions ----

@@ -24,6 +24,9 @@ type Config struct {
 	SSHTimeoutMs      int
 	SiteExecTimeoutMs int
 	InsecureHostKey   bool
+	// ReadOnly hides every mutating tool from the MCP server's tools/list.
+	// Driven by SP_READ_ONLY (1/true/yes). Off by default.
+	ReadOnly bool
 }
 
 const (
@@ -85,7 +88,22 @@ func Load() (*Config, error) {
 		SSHTimeoutMs:      intEnv("SP_SSH_TIMEOUT_MS", DefaultSSHTimeout),
 		SiteExecTimeoutMs: intEnv("SP_SITE_EXEC_TIMEOUT_MS", DefaultSiteExecTimeoutMs),
 		InsecureHostKey:   os.Getenv("SP_INSECURE_DISABLE_HOST_KEY_CHECK") == "1",
+		ReadOnly:          boolEnv("SP_READ_ONLY"),
 	}, nil
+}
+
+// boolEnv parses 1/true/yes (case-insensitive) as true. Anything else,
+// including unset and empty, is false.
+func IsTrueEnv(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+func boolEnv(name string) bool {
+	return IsTrueEnv(os.Getenv(name))
 }
 
 func ExpandHome(p string) (string, error) {

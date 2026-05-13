@@ -14,11 +14,16 @@ type Patcher interface {
 	// Detect reports whether the client is plausibly installed and returns
 	// the path it would patch.
 	Detect() (installed bool, configPath string, err error)
-	// Patch inserts/updates the serverpilot entry. Returns whether the file
+	// Patch inserts/updates the serverpilot entry. env is written under the
+	// entry's "env" block (nil/empty for no env). Returns whether the file
 	// changed and a unified-style diff. dryRun does not write.
-	Patch(binaryPath string, dryRun bool) (changed bool, diff string, err error)
+	Patch(binaryPath string, env map[string]string, dryRun bool) (changed bool, diff string, err error)
 	// Unpatch removes the serverpilot entry, leaving everything else alone.
 	Unpatch() (changed bool, err error)
+	// CurrentEnv reads the existing config and returns the env block on the
+	// serverpilot entry, or nil if the file/entry doesn't exist. Used by
+	// `status` to surface read-only mode without re-patching.
+	CurrentEnv() (map[string]string, error)
 }
 
 // All returns the full registry of patchers in a stable order. The order

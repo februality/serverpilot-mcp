@@ -13,12 +13,18 @@ import (
 	mcsh "github.com/februality/serverpilot-mcp/internal/ssh"
 )
 
+const readOnlyEnvVar = "SP_READ_ONLY"
+
 type statusOutput struct {
-	Version       string                  `json:"version"`
-	Credentials   credStatus              `json:"credentials"`
-	SSHKey        sshKeyStatus            `json:"sshKey"`
-	Clients       []clientStatus          `json:"clients"`
-	BinaryPath    string                  `json:"binaryPath"`
+	Version     string         `json:"version"`
+	Credentials credStatus     `json:"credentials"`
+	SSHKey      sshKeyStatus   `json:"sshKey"`
+	Clients     []clientStatus `json:"clients"`
+	BinaryPath  string         `json:"binaryPath"`
+	// ReadOnlyEnv reflects SP_READ_ONLY in the current shell — only useful
+	// if the user happens to have it set when running `status`. The per-
+	// client `readOnly` field below is the authoritative signal.
+	ReadOnlyEnv bool `json:"readOnlyEnv"`
 }
 
 type credStatus struct {
@@ -37,6 +43,10 @@ type clientStatus struct {
 	Name       string `json:"displayName"`
 	ConfigPath string `json:"configPath"`
 	Detected   bool   `json:"detected"`
+	// ReadOnly is true when the client's config has SP_READ_ONLY=1 in the
+	// serverpilot entry's env block — i.e. the MCP server will start up
+	// with the six write tools hidden.
+	ReadOnly bool `json:"readOnly"`
 }
 
 func NewStatus() *cobra.Command {
@@ -65,8 +75,9 @@ func NewStatus() *cobra.Command {
 func buildStatus() statusOutput {
 	exe, _ := os.Executable()
 	out := statusOutput{
-		Version:    Version,
-		BinaryPath: exe,
+		Version:     Version,
+		BinaryPath:  exe,
+		ReadOnlyEnv: config.IsTrueEnv(os.Getenv(readOnlyEnvVar)),
 	}
 	if r, err := creds.ResolveAPICredentials(); err == nil {
 		out.Credentials = credStatus{
@@ -82,9 +93,16 @@ func buildStatus() statusOutput {
 	}
 	for _, p := range clients.All() {
 		detected, path, _ := p.Detect()
-		out.Clients = append(out.Clients, clientStatus{
+		cs := clientStatus{
 			ID: p.ID(), Name: p.DisplayName(), ConfigPath: path, Detected: detected,
-		})
+		}
+		// Inspect env even when not "detected" — the wizard creates the
+		// config on patch, so a client may have a serverpilot entry without
+		// its install directory existing.
+		if env, err := p.CurrentEnv(); err == nil {
+			cs.ReadOnly = config.IsTrueEnv(env[readOnlyEnvVar])
+		}
+		out.Clients = append(out.Clients, cs)
 	}
 	return out
 }
@@ -115,6 +133,10 @@ func printStatusHuman(s statusOutput) {
 		if c.Detected {
 			mark = "✓"
 		}
-		fmt.Printf("  %s %-16s %s\n", mark, c.Name, c.ConfigPath)
+		suffix := ""
+		if c.ReadOnly {
+			suffix = "  (read-only)"
+		}
+		fmt.Printf("  %s %-16s %s%s\n", mark, c.Name, c.ConfigPath, suffix)
 	}
 }

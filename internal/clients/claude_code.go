@@ -20,8 +20,9 @@ func (c claudeCode) Detect() (bool, string, error) {
 	return true, c.p.configPath, nil
 }
 
-func (c claudeCode) Patch(binaryPath string, dryRun bool) (bool, string, error) {
-	return c.p.patch(newStdioEntry(binaryPath), dryRun)
+func (c claudeCode) Patch(binaryPath string, env map[string]string, dryRun bool) (bool, string, error) {
+	return c.p.patch(newStdioEntry(binaryPath, env), dryRun)
 }
 
-func (c claudeCode) Unpatch() (bool, error) { return c.p.unpatch() }
+func (c claudeCode) Unpatch() (bool, error)                 { return c.p.unpatch() }
+func (c claudeCode) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }

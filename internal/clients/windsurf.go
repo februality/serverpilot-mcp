@@ -19,8 +19,9 @@ func (w windsurf) Detect() (bool, string, error) {
 	return fileExists(parent) || fileExists(w.p.configPath), w.p.configPath, nil
 }
 
-func (w windsurf) Patch(binaryPath string, dryRun bool) (bool, string, error) {
-	return w.p.patch(newStdioEntry(binaryPath), dryRun)
+func (w windsurf) Patch(binaryPath string, env map[string]string, dryRun bool) (bool, string, error) {
+	return w.p.patch(newStdioEntry(binaryPath, env), dryRun)
 }
 
-func (w windsurf) Unpatch() (bool, error) { return w.p.unpatch() }
+func (w windsurf) Unpatch() (bool, error)                 { return w.p.unpatch() }
+func (w windsurf) CurrentEnv() (map[string]string, error) { return w.p.currentEnv() }

@@ -13,12 +13,16 @@ import (
 )
 
 // RegisterSiteTools registers site_exec, site_read_file, site_write_file,
-// site_list_files.
+// site_list_files. site_exec (arbitrary shell) and site_write_file are skipped
+// when d.Cfg.ReadOnly is true — no command-level allowlist is safe enough to
+// treat site_exec as read-only.
 func RegisterSiteTools(s *server.MCPServer, d *Deps) {
-	s.AddTool(toolSiteExec(), handleSiteExec(d))
 	s.AddTool(toolSiteReadFile(), handleSiteReadFile(d))
-	s.AddTool(toolSiteWriteFile(), handleSiteWriteFile(d))
 	s.AddTool(toolSiteListFiles(), handleSiteListFiles(d))
+	if !d.Cfg.ReadOnly {
+		s.AddTool(toolSiteExec(), handleSiteExec(d))
+		s.AddTool(toolSiteWriteFile(), handleSiteWriteFile(d))
+	}
 }
 
 func toolSiteExec() mcp.Tool {

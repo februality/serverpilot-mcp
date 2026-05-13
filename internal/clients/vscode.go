@@ -22,8 +22,9 @@ func (v vscode) Detect() (bool, string, error) {
 	return fileExists(parent) || fileExists(v.p.configPath), v.p.configPath, nil
 }
 
-func (v vscode) Patch(binaryPath string, dryRun bool) (bool, string, error) {
-	return v.p.patch(newVSCodeEntry(binaryPath), dryRun)
+func (v vscode) Patch(binaryPath string, env map[string]string, dryRun bool) (bool, string, error) {
+	return v.p.patch(newVSCodeEntry(binaryPath, env), dryRun)
 }
 
-func (v vscode) Unpatch() (bool, error) { return v.p.unpatch() }
+func (v vscode) Unpatch() (bool, error)                 { return v.p.unpatch() }
+func (v vscode) CurrentEnv() (map[string]string, error) { return v.p.currentEnv() }

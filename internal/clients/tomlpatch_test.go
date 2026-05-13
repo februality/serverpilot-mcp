@@ -19,7 +19,7 @@ func newTOMLPatcherFor(t *testing.T) (tomlPatcher, string) {
 
 func TestTOMLPatch_FileNotExists(t *testing.T) {
 	p, path := newTOMLPatcherFor(t)
-	changed, _, err := p.patch(newTOMLEntry(binPath), false)
+	changed, _, err := p.patch(newTOMLEntry(binPath, nil), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ args = ["serve"]
 	if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := p.patch(newTOMLEntry(binPath), false); err != nil {
+	if _, _, err := p.patch(newTOMLEntry(binPath, nil), false); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
@@ -73,9 +73,55 @@ func TestTOMLPatch_RefusesMalformed(t *testing.T) {
 	if err := os.WriteFile(path, []byte("[unclosed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := p.patch(newTOMLEntry(binPath), false)
+	_, _, err := p.patch(newTOMLEntry(binPath, nil), false)
 	if err == nil || !errors.Is(err, ErrMalformedTOML) {
 		t.Fatalf("expected ErrMalformedTOML, got %v", err)
+	}
+}
+
+func TestTOMLPatch_WritesEnvSubTable(t *testing.T) {
+	p, path := newTOMLPatcherFor(t)
+	env := map[string]string{"SP_READ_ONLY": "1"}
+	if _, _, err := p.patch(newTOMLEntry(binPath, env), false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	root := map[string]any{}
+	if err := toml.Unmarshal(b, &root); err != nil {
+		t.Fatal(err)
+	}
+	srv := root["mcp_servers"].(map[string]any)["serverpilot"].(map[string]any)
+	envTable, ok := srv["env"].(map[string]any)
+	if !ok {
+		t.Fatalf("env sub-table missing: %v", srv)
+	}
+	if envTable["SP_READ_ONLY"] != "1" {
+		t.Errorf("SP_READ_ONLY = %v, want \"1\"", envTable["SP_READ_ONLY"])
+	}
+}
+
+func TestTOMLPatch_NilEnvOmitsBlock(t *testing.T) {
+	p, path := newTOMLPatcherFor(t)
+	if _, _, err := p.patch(newTOMLEntry(binPath, nil), false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if strings.Contains(string(b), "env") {
+		t.Errorf("nil env should not emit env table. got: %s", b)
+	}
+}
+
+func TestTOMLPatch_CurrentEnv(t *testing.T) {
+	p, _ := newTOMLPatcherFor(t)
+	if _, _, err := p.patch(newTOMLEntry(binPath, map[string]string{"SP_READ_ONLY": "1"}), false); err != nil {
+		t.Fatal(err)
+	}
+	env, err := p.currentEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["SP_READ_ONLY"] != "1" {
+		t.Errorf("currentEnv = %v, want SP_READ_ONLY=1", env)
 	}
 }
 

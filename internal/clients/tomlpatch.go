@@ -54,6 +54,44 @@ func (p tomlPatcher) patch(entry any, dryRun bool) (bool, string, error) {
 	return true, "", nil
 }
 
+// currentEnv reads the entry's [env] sub-table at tablePath+["env"]. Returns
+// nil when the file or entry is absent. Refuses on malformed TOML.
+func (p tomlPatcher) currentEnv() (map[string]string, error) {
+	original, err := os.ReadFile(p.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(original)) == 0 {
+		return nil, nil
+	}
+	root := map[string]any{}
+	if err := toml.Unmarshal(original, &root); err != nil {
+		return nil, fmt.Errorf("%w: %s: %v", ErrMalformedTOML, p.configPath, err)
+	}
+	cur := root
+	for _, key := range p.tablePath {
+		next, ok := cur[key].(map[string]any)
+		if !ok {
+			return nil, nil
+		}
+		cur = next
+	}
+	envTable, ok := cur["env"].(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for k, v := range envTable {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out, nil
+}
+
 func (p tomlPatcher) unpatch() (bool, error) {
 	original, err := os.ReadFile(p.configPath)
 	if err != nil {

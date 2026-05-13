@@ -10,7 +10,7 @@ import (
 
 const (
 	ServerName    = "serverpilot"
-	ServerVersion = "2.0.2"
+	ServerVersion = "2.1.0"
 )
 
 type Deps struct {
@@ -53,7 +53,10 @@ func Build(cfg *config.Config) *Deps {
 	}
 }
 
-// New returns an MCP server with all 14 tools registered.
+// New returns an MCP server with tools registered. With deps.Cfg.ReadOnly
+// true, the six mutating tools (sp_update_app_runtime, sp_update_db_password,
+// sp_ssh_setup, sp_ssh_remove, site_exec, site_write_file) are not registered
+// and never appear in tools/list.
 func New(deps *Deps) *server.MCPServer {
 	s := server.NewMCPServer(ServerName, ServerVersion)
 	RegisterAPITools(s, deps)

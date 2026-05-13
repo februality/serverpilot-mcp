@@ -31,7 +31,7 @@ func TestPatchers_SmokeRoundTrip(t *testing.T) {
 			// Re-construct after HOME was overridden.
 			p := ByID(p.ID())
 
-			changed, _, err := p.Patch(binPath, false)
+			changed, _, err := p.Patch(binPath, nil, false)
 			if err != nil {
 				t.Fatalf("Patch err: %v", err)
 			}
@@ -39,7 +39,7 @@ func TestPatchers_SmokeRoundTrip(t *testing.T) {
 				t.Fatal("expected first patch to change")
 			}
 			// Idempotent: second patch is a no-op.
-			changed, _, err = p.Patch(binPath, false)
+			changed, _, err = p.Patch(binPath, nil, false)
 			if err != nil {
 				t.Fatalf("re-Patch err: %v", err)
 			}
@@ -61,7 +61,7 @@ func TestPatchers_SmokeRoundTrip(t *testing.T) {
 func TestVSCode_UsesServersKey(t *testing.T) {
 	withTempHome(t)
 	p := ByID("vscode")
-	if _, _, err := p.Patch(binPath, false); err != nil {
+	if _, _, err := p.Patch(binPath, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	_, path, _ := p.Detect()
@@ -74,6 +74,43 @@ func TestVSCode_UsesServersKey(t *testing.T) {
 	}
 	if gjson.GetBytes(b, "mcpServers").Exists() {
 		t.Error("VS Code entry should NOT use `mcpServers`")
+	}
+}
+
+// TestPatchers_ReadOnlyEnvRoundTrip walks every patcher: patch with the
+// SP_READ_ONLY env block, then verify CurrentEnv reads it back. This is the
+// path `serverpilot-mcp setup --read-only` and `serverpilot-mcp status`
+// rely on across all client formats (JSON / VS Code / TOML).
+func TestPatchers_ReadOnlyEnvRoundTrip(t *testing.T) {
+	env := map[string]string{"SP_READ_ONLY": "1"}
+	for _, p := range All() {
+		t.Run(p.ID(), func(t *testing.T) {
+			withTempHome(t)
+			p := ByID(p.ID())
+
+			if _, _, err := p.Patch(binPath, env, false); err != nil {
+				t.Fatalf("Patch err: %v", err)
+			}
+			got, err := p.CurrentEnv()
+			if err != nil {
+				t.Fatalf("CurrentEnv err: %v", err)
+			}
+			if got["SP_READ_ONLY"] != "1" {
+				t.Errorf("CurrentEnv = %v, want SP_READ_ONLY=1", got)
+			}
+
+			// Repatching with nil env removes the block.
+			if _, _, err := p.Patch(binPath, nil, false); err != nil {
+				t.Fatalf("re-Patch err: %v", err)
+			}
+			got, err = p.CurrentEnv()
+			if err != nil {
+				t.Fatalf("CurrentEnv err: %v", err)
+			}
+			if len(got) != 0 {
+				t.Errorf("CurrentEnv after nil patch = %v, want empty", got)
+			}
+		})
 	}
 }
 

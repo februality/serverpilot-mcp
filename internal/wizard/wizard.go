@@ -26,18 +26,23 @@ import (
 
 // Options configure a wizard run.
 type Options struct {
-	Out          io.Writer
-	Prompter     Prompter
-	Unattended   bool   // when true, skip prompts and use defaults
-	BinaryPath   string // path to install into MCP-client configs
-	SkipSSH      bool   // skip SSH key generation/registration/assignment
-	SkipClients  bool   // skip patching any MCP-client configs
-	OnlyClients  []string // limit which client patchers to use ("" = all)
-	SSHKeyPath   string   // override config default
-	SSHKeyName   string   // override config default
+	Out         io.Writer
+	Prompter    Prompter
+	Unattended  bool     // when true, skip prompts and use defaults
+	BinaryPath  string   // path to install into MCP-client configs
+	SkipSSH     bool     // skip SSH key generation/registration/assignment
+	SkipClients bool     // skip patching any MCP-client configs
+	OnlyClients []string // limit which client patchers to use ("" = all)
+	SSHKeyPath  string   // override config default
+	SSHKeyName  string   // override config default
+	// ReadOnly bakes SP_READ_ONLY=1 into the patched MCP-client config so
+	// the MCP server starts up with the six write tools hidden. When false
+	// (the default) no env block is written, preserving byte-identical
+	// output for existing installs.
+	ReadOnly bool
 }
 
-// Run executes the 11-step setup flow. Returns the first fatal error or nil.
+// Run executes the setup flow. Returns the first fatal error or nil.
 func Run(opts Options) error {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
@@ -98,7 +103,26 @@ func Run(opts Options) error {
 		}
 	}
 
-	// Steps 9-10: detect + patch clients
+	// Step 9: read-only mode opt-in (the env var is baked into the client
+	// configs in step 10, so it has to be decided before patching).
+	if !opts.SkipClients && !opts.Unattended {
+		readOnly, promptErr := opts.Prompter.Confirm(
+			"Run the MCP server in read-only mode? Hides every write tool "+
+				"(site_exec, site_write_file, sp_update_*, sp_ssh_setup/remove) "+
+				"so the AI tool can read but cannot change anything.",
+			opts.ReadOnly,
+		)
+		if promptErr != nil {
+			return promptErr
+		}
+		opts.ReadOnly = readOnly
+	}
+	if opts.ReadOnly {
+		fmt.Fprintln(w, "  ✓ Read-only mode: ON")
+		fmt.Fprintln(w)
+	}
+
+	// Step 10: detect + patch clients
 	patched := []string{}
 	if !opts.SkipClients {
 		patched, err = patchClients(w, opts)
@@ -329,6 +353,15 @@ func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers
 	return nil
 }
 
+// patchEnv builds the env block written into each client's MCP server
+// entry. Returns nil (omitted on the wire) unless ReadOnly is set.
+func patchEnv(opts Options) map[string]string {
+	if !opts.ReadOnly {
+		return nil
+	}
+	return map[string]string{"SP_READ_ONLY": "1"}
+}
+
 func patchClients(w io.Writer, opts Options) ([]string, error) {
 	all := clients.All()
 
@@ -397,7 +430,7 @@ func patchClients(w io.Writer, opts Options) ([]string, error) {
 		if !want[i.patcher.ID()] {
 			continue
 		}
-		changed, _, err := i.patcher.Patch(opts.BinaryPath, false)
+		changed, _, err := i.patcher.Patch(opts.BinaryPath, patchEnv(opts), false)
 		if err != nil {
 			fmt.Fprintf(w, "  ✗ %s: %s\n", i.patcher.DisplayName(), err)
 			continue

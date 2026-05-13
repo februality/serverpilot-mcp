@@ -20,8 +20,9 @@ func (c codex) Detect() (bool, string, error) {
 	return fileExists(parent) || fileExists(c.p.configPath), c.p.configPath, nil
 }
 
-func (c codex) Patch(binaryPath string, dryRun bool) (bool, string, error) {
-	return c.p.patch(newTOMLEntry(binaryPath), dryRun)
+func (c codex) Patch(binaryPath string, env map[string]string, dryRun bool) (bool, string, error) {
+	return c.p.patch(newTOMLEntry(binaryPath, env), dryRun)
 }
 
-func (c codex) Unpatch() (bool, error) { return c.p.unpatch() }
+func (c codex) Unpatch() (bool, error)                 { return c.p.unpatch() }
+func (c codex) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }

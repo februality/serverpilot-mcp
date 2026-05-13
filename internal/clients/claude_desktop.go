@@ -21,8 +21,9 @@ func (c claudeDesktop) Detect() (bool, string, error) {
 	return fileExists(parent) || fileExists(c.p.configPath), c.p.configPath, nil
 }
 
-func (c claudeDesktop) Patch(binaryPath string, dryRun bool) (bool, string, error) {
-	return c.p.patch(newStdioEntry(binaryPath), dryRun)
+func (c claudeDesktop) Patch(binaryPath string, env map[string]string, dryRun bool) (bool, string, error) {
+	return c.p.patch(newStdioEntry(binaryPath, env), dryRun)
 }
 
-func (c claudeDesktop) Unpatch() (bool, error) { return c.p.unpatch() }
+func (c claudeDesktop) Unpatch() (bool, error)                 { return c.p.unpatch() }
+func (c claudeDesktop) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }

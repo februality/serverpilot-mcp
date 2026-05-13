@@ -13,10 +13,14 @@ import (
 )
 
 // RegisterBootstrapTools registers sp_ssh_setup, sp_ssh_status, sp_ssh_remove.
+// sp_ssh_setup and sp_ssh_remove mutate ServerPilot key registrations and
+// remote authorized_keys, so they are skipped when d.Cfg.ReadOnly is true.
 func RegisterBootstrapTools(s *server.MCPServer, d *Deps) {
-	s.AddTool(toolSSHSetup(), handleSSHSetup(d))
 	s.AddTool(toolSSHStatus(), handleSSHStatus(d))
-	s.AddTool(toolSSHRemove(), handleSSHRemove(d))
+	if !d.Cfg.ReadOnly {
+		s.AddTool(toolSSHSetup(), handleSSHSetup(d))
+		s.AddTool(toolSSHRemove(), handleSSHRemove(d))
+	}
 }
 
 func toolSSHSetup() mcp.Tool {
@@ -142,12 +146,12 @@ type sshStatusUser struct {
 }
 
 type sshStatus struct {
-	KeyName                   string           `json:"keyName"`
-	KeyPath                   string           `json:"keyPath"`
-	LocalKeyExists            bool             `json:"localKeyExists"`
-	RegisteredWithServerPilot bool             `json:"registeredWithServerPilot"`
-	ServerPilotKeyID          *string          `json:"serverPilotKeyId"`
-	Users                     []sshStatusUser  `json:"users,omitempty"`
+	KeyName                   string          `json:"keyName"`
+	KeyPath                   string          `json:"keyPath"`
+	LocalKeyExists            bool            `json:"localKeyExists"`
+	RegisteredWithServerPilot bool            `json:"registeredWithServerPilot"`
+	ServerPilotKeyID          *string         `json:"serverPilotKeyId"`
+	Users                     []sshStatusUser `json:"users,omitempty"`
 }
 
 func handleSSHStatus(d *Deps) server.ToolHandlerFunc {

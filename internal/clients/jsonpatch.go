@@ -72,6 +72,34 @@ func (p jsonPatcher) patch(entry any, dryRun bool) (bool, string, error) {
 	return true, "", nil
 }
 
+// currentEnv reads the entry's "env" object at jsonPath+".env". Returns nil
+// when the file, entry, or env block is absent. Refuses on malformed JSON.
+func (p jsonPatcher) currentEnv() (map[string]string, error) {
+	original, err := os.ReadFile(p.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(original)) == 0 {
+		return nil, nil
+	}
+	if !gjson.ValidBytes(original) {
+		return nil, fmt.Errorf("%w: %s", ErrMalformedConfig, p.configPath)
+	}
+	envNode := gjson.GetBytes(original, p.jsonPath+".env")
+	if !envNode.Exists() || !envNode.IsObject() {
+		return nil, nil
+	}
+	out := map[string]string{}
+	envNode.ForEach(func(k, v gjson.Result) bool {
+		out[k.String()] = v.String()
+		return true
+	})
+	return out, nil
+}
+
 // unpatch removes the serverpilot entry. Returns (changed, error). If the
 // file or the path is absent, returns (false, nil).
 func (p jsonPatcher) unpatch() (bool, error) {

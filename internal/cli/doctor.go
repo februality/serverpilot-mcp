@@ -74,12 +74,16 @@ func runDoctor() error {
 			}
 			continue
 		}
+		roSuffix := ""
+		if env, err := p.CurrentEnv(); err == nil && config.IsTrueEnv(env["SP_READ_ONLY"]) {
+			roSuffix = "  [read-only]"
+		}
 		// Light validation: JSON parses, our key is present.
 		switch p.ID() {
 		case "codex":
 			if !gjson.ValidBytes(b) || true {
 				// TOML — skip parse here; tomlpatch_test covers it.
-				fmt.Printf("  ✓ %-16s present at %s\n", p.DisplayName(), path)
+				fmt.Printf("  ✓ %-16s present at %s%s\n", p.DisplayName(), path, roSuffix)
 			}
 		case "vscode":
 			if !gjson.ValidBytes(b) {
@@ -87,7 +91,7 @@ func runDoctor() error {
 				continue
 			}
 			if gjson.GetBytes(b, "servers."+clients.ServerKey).Exists() {
-				fmt.Printf("  ✓ %-16s configured\n", p.DisplayName())
+				fmt.Printf("  ✓ %-16s configured%s\n", p.DisplayName(), roSuffix)
 			} else {
 				fmt.Printf("  · %-16s present but no serverpilot entry\n", p.DisplayName())
 			}
@@ -97,7 +101,7 @@ func runDoctor() error {
 				continue
 			}
 			if gjson.GetBytes(b, "mcpServers."+clients.ServerKey).Exists() {
-				fmt.Printf("  ✓ %-16s configured\n", p.DisplayName())
+				fmt.Printf("  ✓ %-16s configured%s\n", p.DisplayName(), roSuffix)
 			} else {
 				fmt.Printf("  · %-16s present but no serverpilot entry\n", p.DisplayName())
 			}

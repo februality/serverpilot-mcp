@@ -19,8 +19,9 @@ func (c cursor) Detect() (bool, string, error) {
 	return fileExists(parent) || fileExists(c.p.configPath), c.p.configPath, nil
 }
 
-func (c cursor) Patch(binaryPath string, dryRun bool) (bool, string, error) {
-	return c.p.patch(newStdioEntry(binaryPath), dryRun)
+func (c cursor) Patch(binaryPath string, env map[string]string, dryRun bool) (bool, string, error) {
+	return c.p.patch(newStdioEntry(binaryPath, env), dryRun)
 }
 
-func (c cursor) Unpatch() (bool, error) { return c.p.unpatch() }
+func (c cursor) Unpatch() (bool, error)                 { return c.p.unpatch() }
+func (c cursor) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }

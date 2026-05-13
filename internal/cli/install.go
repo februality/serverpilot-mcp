@@ -16,6 +16,7 @@ func NewInstall() *cobra.Command {
 		all        bool
 		binaryPath string
 		dryRun     bool
+		readOnly   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -58,8 +59,12 @@ func NewInstall() *cobra.Command {
 				return nil
 			}
 
+			var env map[string]string
+			if readOnly {
+				env = map[string]string{"SP_READ_ONLY": "1"}
+			}
 			for _, p := range targets {
-				changed, diff, err := p.Patch(binaryPath, dryRun)
+				changed, diff, err := p.Patch(binaryPath, env, dryRun)
 				if err != nil {
 					fmt.Printf("  ✗ %s: %s\n", p.DisplayName(), err)
 					continue
@@ -83,5 +88,6 @@ func NewInstall() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "patch every detected MCP client")
 	cmd.Flags().StringVar(&binaryPath, "binary-path", "", "absolute path to write into client configs (default: this binary)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print diffs without writing")
+	cmd.Flags().BoolVar(&readOnly, "read-only", false, "bake SP_READ_ONLY=1 into client configs (hides write tools)")
 	return cmd
 }
