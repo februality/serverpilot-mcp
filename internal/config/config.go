@@ -92,8 +92,9 @@ func Load() (*Config, error) {
 	}, nil
 }
 
-// boolEnv parses 1/true/yes (case-insensitive) as true. Anything else,
-// including unset and empty, is false.
+// IsTrueEnv parses 1/true/yes/on (case-insensitive, trimmed) as true.
+// Anything else, including unset and empty, is false. Shared with callers
+// that need to interpret env-var-shaped values (e.g. status, doctor).
 func IsTrueEnv(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "1", "true", "yes", "on":
