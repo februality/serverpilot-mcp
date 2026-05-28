@@ -17,20 +17,27 @@ func TestNew_ToolRegistration(t *testing.T) {
 		"sp_get_app",
 		"sp_list_databases",
 		"sp_list_sysusers",
+		"sp_get_action",
 		"sp_ssh_status",
 		"site_read_file",
 		"site_list_files",
 	}
 	writeTools := []string{
 		"sp_update_app_runtime",
+		"sp_update_app_domains",
+		"sp_set_app_ssl",
+		"sp_remove_app_ssl",
+		"sp_create_app",
 		"sp_update_db_password",
+		"sp_create_database",
+		"sp_delete_database",
 		"sp_ssh_setup",
 		"sp_ssh_remove",
 		"site_exec",
 		"site_write_file",
 	}
 
-	t.Run("default mode registers all 15 tools", func(t *testing.T) {
+	t.Run("default mode registers all 22 tools", func(t *testing.T) {
 		cfg := &config.Config{ClientID: "cid", APIKey: "key"}
 		s := New(Build(cfg))
 		got := registeredToolNames(s.ListTools())
@@ -42,7 +49,7 @@ func TestNew_ToolRegistration(t *testing.T) {
 		}
 	})
 
-	t.Run("read-only mode hides the six write tools", func(t *testing.T) {
+	t.Run("read-only mode hides all twelve write tools", func(t *testing.T) {
 		cfg := &config.Config{ClientID: "cid", APIKey: "key", ReadOnly: true}
 		s := New(Build(cfg))
 		got := registeredToolNames(s.ListTools())

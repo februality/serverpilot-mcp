@@ -89,13 +89,82 @@ type UpdateRuntimeResult struct {
 }
 
 func (a *AppsAPI) UpdateRuntime(id, runtime string) (*UpdateRuntimeResult, error) {
+	return a.update(id, map[string]any{"runtime": runtime})
+}
+
+func (a *AppsAPI) UpdateDomains(id string, domains []string) (*UpdateRuntimeResult, error) {
+	if domains == nil {
+		domains = []string{}
+	}
+	return a.update(id, map[string]any{"domains": domains})
+}
+
+func (a *AppsAPI) update(id string, body map[string]any) (*UpdateRuntimeResult, error) {
 	a.cache.Invalidate("apps")
 	a.cache.Invalidate("app:" + id)
 	var resp struct {
 		ActionID string `json:"actionid"`
 		Data     SPApp  `json:"data"`
 	}
-	if err := a.client.Post("/apps/"+id, map[string]any{"runtime": runtime}, &resp); err != nil {
+	if err := a.client.Post("/apps/"+id, body, &resp); err != nil {
+		return nil, err
+	}
+	return &UpdateRuntimeResult{ActionID: resp.ActionID}, nil
+}
+
+type CreateAppWordPress struct {
+	SiteTitle     string `json:"site_title"`
+	AdminUser     string `json:"admin_user"`
+	AdminPassword string `json:"admin_password"`
+	AdminEmail    string `json:"admin_email"`
+}
+
+type CreateAppRequest struct {
+	Name      string              `json:"name"`
+	SysUserID string              `json:"sysuserid"`
+	Runtime   string              `json:"runtime"`
+	Domains   []string            `json:"domains,omitempty"`
+	WordPress *CreateAppWordPress `json:"wordpress,omitempty"`
+}
+
+type CreateAppResult struct {
+	App      SPApp
+	ActionID string
+}
+
+func (a *AppsAPI) Create(req CreateAppRequest) (*CreateAppResult, error) {
+	a.cache.Invalidate("apps")
+	var resp struct {
+		ActionID string `json:"actionid"`
+		Data     SPApp  `json:"data"`
+	}
+	if err := a.client.Post("/apps", req, &resp); err != nil {
+		return nil, err
+	}
+	return &CreateAppResult{App: resp.Data, ActionID: resp.ActionID}, nil
+}
+
+// SetSSL posts to /apps/:id/ssl with one of three body shapes (handled by caller):
+// {auto: bool}, {force: bool}, or {key, cert, cacerts} for a custom certificate.
+func (a *AppsAPI) SetSSL(id string, body map[string]any) (*UpdateRuntimeResult, error) {
+	a.cache.Invalidate("apps")
+	a.cache.Invalidate("app:" + id)
+	var resp struct {
+		ActionID string `json:"actionid"`
+	}
+	if err := a.client.Post("/apps/"+id+"/ssl", body, &resp); err != nil {
+		return nil, err
+	}
+	return &UpdateRuntimeResult{ActionID: resp.ActionID}, nil
+}
+
+func (a *AppsAPI) RemoveSSL(id string) (*UpdateRuntimeResult, error) {
+	a.cache.Invalidate("apps")
+	a.cache.Invalidate("app:" + id)
+	var resp struct {
+		ActionID string `json:"actionid"`
+	}
+	if err := a.client.Delete("/apps/"+id+"/ssl", &resp); err != nil {
 		return nil, err
 	}
 	return &UpdateRuntimeResult{ActionID: resp.ActionID}, nil

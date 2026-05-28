@@ -39,6 +39,73 @@ func TestDatabasesAPI_ListByApp(t *testing.T) {
 	}
 }
 
+func TestDatabasesAPI_Create_BodyAndCacheInvalidation(t *testing.T) {
+	var gotBody map[string]any
+	listCalls := 0
+	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/dbs" && r.Method == http.MethodGet:
+			listCalls++
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case r.URL.Path == "/dbs" && r.Method == http.MethodPost:
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			_, _ = w.Write([]byte(`{"actionid":"act_1","data":{"id":"db_new","name":"mydb","appid":"app_1","serverid":"srv_1","user":{"id":"u_new","name":"arturo"}}}`))
+		}
+	})
+	api := NewDatabasesAPI(c, NewTTLCache(60))
+	if _, err := api.List(); err != nil {
+		t.Fatal(err)
+	}
+	res, err := api.Create(CreateDatabaseRequest{
+		AppID:    "app_1",
+		Name:     "mydb",
+		UserName: "arturo",
+		Password: "supersecret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ActionID != "act_1" || res.Database.ID != "db_new" || res.Database.User.Name != "arturo" {
+		t.Fatalf("result = %+v", res)
+	}
+	if gotBody["appid"] != "app_1" || gotBody["name"] != "mydb" {
+		t.Fatalf("body = %v", gotBody)
+	}
+	user, ok := gotBody["user"].(map[string]any)
+	if !ok || user["name"] != "arturo" || user["password"] != "supersecret" {
+		t.Fatalf("user = %v", gotBody["user"])
+	}
+	if _, err := api.List(); err != nil {
+		t.Fatal(err)
+	}
+	if listCalls != 2 {
+		t.Fatalf("expected 2 list calls after Create, got %d", listCalls)
+	}
+}
+
+func TestDatabasesAPI_Delete(t *testing.T) {
+	gotMethod := ""
+	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/dbs/db_1" {
+			w.WriteHeader(404)
+			return
+		}
+		gotMethod = r.Method
+		_, _ = w.Write([]byte(`{"actionid":"act_2","data":{}}`))
+	})
+	api := NewDatabasesAPI(c, NewTTLCache(60))
+	res, err := api.Delete("db_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Fatalf("method = %q", gotMethod)
+	}
+	if res.ActionID != "act_2" {
+		t.Fatalf("actionid = %q", res.ActionID)
+	}
+}
+
 func TestDatabasesAPI_UpdatePassword_InvalidatesCache(t *testing.T) {
 	listCalls := 0
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,9 @@
 package spapi
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type SysUsersAPI struct {
 	client *Client
@@ -55,4 +58,23 @@ func (s *SysUsersAPI) ListByServer(serverID string) ([]SPSysUser, error) {
 		}
 	}
 	return out, nil
+}
+
+// Resolve tries ID first, then name within the given server. Names are not
+// unique across servers, so a server scope is required.
+func (s *SysUsersAPI) Resolve(idOrName, serverID string) (*SPSysUser, error) {
+	if u, err := s.Get(idOrName); err == nil && u.ServerID == serverID {
+		return u, nil
+	}
+	users, err := s.ListByServer(serverID)
+	if err != nil {
+		return nil, err
+	}
+	target := strings.ToLower(idOrName)
+	for i := range users {
+		if strings.ToLower(users[i].Name) == target {
+			return &users[i], nil
+		}
+	}
+	return nil, fmt.Errorf("System user not found on server: %s", idOrName)
 }

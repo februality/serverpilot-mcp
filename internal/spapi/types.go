@@ -74,6 +74,13 @@ type SPActionResponse struct {
 	Data     map[string]any `json:"data"`
 }
 
+type SPAction struct {
+	ID          string `json:"id"`
+	ServerID    string `json:"serverid"`
+	Status      string `json:"status"` // "success" | "open" | "error"
+	DateCreated int64  `json:"datecreated"`
+}
+
 type spListResponse[T any] struct {
 	Data []T `json:"data"`
 }

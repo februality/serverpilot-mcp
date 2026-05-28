@@ -17,8 +17,10 @@ import (
 // Tool names, input schemas, and JSON output shapes are part of the public
 // contract — downstream skills parse them, so changes are backwards-incompatible.
 //
-// Writes (sp_update_app_runtime, sp_update_db_password) are skipped when
-// d.Cfg.ReadOnly is true so they never appear in tools/list.
+// All writes (sp_update_app_runtime, sp_update_app_domains, sp_set_app_ssl,
+// sp_remove_app_ssl, sp_create_app, sp_update_db_password, sp_create_database,
+// sp_delete_database) are skipped when d.Cfg.ReadOnly is true so they never
+// appear in tools/list.
 func RegisterAPITools(s *server.MCPServer, d *Deps) {
 	s.AddTool(toolListServers(), handleListServers(d))
 	s.AddTool(toolGetServer(), handleGetServer(d))
@@ -26,9 +28,16 @@ func RegisterAPITools(s *server.MCPServer, d *Deps) {
 	s.AddTool(toolGetApp(), handleGetApp(d))
 	s.AddTool(toolListDatabases(), handleListDatabases(d))
 	s.AddTool(toolListSysUsers(), handleListSysUsers(d))
+	s.AddTool(toolGetAction(), handleGetAction(d))
 	if !d.Cfg.ReadOnly {
 		s.AddTool(toolUpdateAppRuntime(), handleUpdateAppRuntime(d))
+		s.AddTool(toolUpdateAppDomains(), handleUpdateAppDomains(d))
+		s.AddTool(toolSetAppSSL(), handleSetAppSSL(d))
+		s.AddTool(toolRemoveAppSSL(), handleRemoveAppSSL(d))
+		s.AddTool(toolCreateApp(), handleCreateApp(d))
 		s.AddTool(toolUpdateDBPassword(), handleUpdateDBPassword(d))
+		s.AddTool(toolCreateDatabase(), handleCreateDatabase(d))
+		s.AddTool(toolDeleteDatabase(), handleDeleteDatabase(d))
 	}
 }
 
@@ -92,6 +101,78 @@ func toolListSysUsers() mcp.Tool {
 	)
 }
 
+func toolGetAction() mcp.Tool {
+	return mcp.NewTool("sp_get_action",
+		mcp.WithDescription("Get the status of a ServerPilot action returned by any write tool. Status is 'open' (still running), 'success', or 'error'."),
+		mcp.WithString("action_id", mcp.Required(), mcp.Description("Action ID returned by a previous write tool")),
+	)
+}
+
+func toolUpdateAppDomains() mcp.Tool {
+	return mcp.NewTool("sp_update_app_domains",
+		mcp.WithDescription("Replace the full list of domains served by an app. The API replaces, not appends — pass every domain you want active."),
+		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
+		mcp.WithArray("domains", mcp.Required(),
+			mcp.Description("Complete list of domain names (e.g. ['example.com','www.example.com'])"),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+	)
+}
+
+func toolSetAppSSL() mcp.Tool {
+	return mcp.NewTool("sp_set_app_ssl",
+		mcp.WithDescription("Configure SSL for an app. Pass exactly one of: 'auto' (toggle AutoSSL), 'force' (toggle HTTPS redirect), or 'key'+'cert' (install custom certificate)."),
+		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
+		mcp.WithBoolean("auto", mcp.Description("Enable (true) or disable (false) AutoSSL via Let's Encrypt")),
+		mcp.WithBoolean("force", mcp.Description("Enable (true) or disable (false) the HTTP-to-HTTPS redirect (ForceSSL)")),
+		mcp.WithString("key", mcp.Description("Custom SSL: PEM-encoded private key contents")),
+		mcp.WithString("cert", mcp.Description("Custom SSL: PEM-encoded certificate contents")),
+		mcp.WithString("cacerts", mcp.Description("Custom SSL: PEM-encoded CA certificate(s); empty for none")),
+	)
+}
+
+func toolRemoveAppSSL() mcp.Tool {
+	return mcp.NewTool("sp_remove_app_ssl",
+		mcp.WithDescription("Remove an app's SSL configuration (deletes the custom cert and/or disables AutoSSL)."),
+		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
+	)
+}
+
+func toolCreateApp() mcp.Tool {
+	return mcp.NewTool("sp_create_app",
+		mcp.WithDescription("Create a new app. Optionally installs WordPress when all four wordpress_* fields are provided."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("App nickname, 3–30 lowercase letters/digits")),
+		mcp.WithString("server", mcp.Required(), mcp.Description("Server ID or name")),
+		mcp.WithString("sysuser", mcp.Required(), mcp.Description("System user ID or name on that server")),
+		mcp.WithString("runtime", mcp.Required(), mcp.Description("PHP runtime (must appear in the server's available_runtimes)")),
+		mcp.WithArray("domains",
+			mcp.Description("Optional list of domain names to serve this app on"),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("wordpress_site_title", mcp.Description("WordPress site title (required to install WP)")),
+		mcp.WithString("wordpress_admin_user", mcp.Description("WordPress admin username (required to install WP)")),
+		mcp.WithString("wordpress_admin_password", mcp.Description("WordPress admin password (required to install WP)")),
+		mcp.WithString("wordpress_admin_email", mcp.Description("WordPress admin email (required to install WP)")),
+	)
+}
+
+func toolCreateDatabase() mcp.Tool {
+	return mcp.NewTool("sp_create_database",
+		mcp.WithDescription("Create a MySQL database for an app, with a single user."),
+		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain that will own the database")),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Database name, 3–64 lowercase letters/digits/dash")),
+		mcp.WithString("user_name", mcp.Required(), mcp.Description("Database user name, max 16 characters")),
+		mcp.WithString("password", mcp.Required(), mcp.Description("Database user password, 8–200 characters")),
+	)
+}
+
+func toolDeleteDatabase() mcp.Tool {
+	return mcp.NewTool("sp_delete_database",
+		mcp.WithDescription("Delete a database (and its user)."),
+		mcp.WithString("database", mcp.Required(), mcp.Description("Database ID")),
+	)
+}
+
 // ---- Output shape helpers (locked-down JSON shapes — public contract) ----
 
 type serverSummary struct {
@@ -151,6 +232,42 @@ type sysUserSummary struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	ServerID string `json:"serverId"`
+}
+
+// actionDetail is the locked-down shape returned by sp_get_action.
+type actionDetail struct {
+	ID          string `json:"id"`
+	Status      string `json:"status"` // "success" | "open" | "error"
+	ServerID    string `json:"serverid"`
+	DateCreated int64  `json:"datecreated"`
+}
+
+// createdAppSummary is returned by sp_create_app. Mirrors the redaction policy
+// of appDetail — WordPress admin password is never echoed back, even though
+// the caller supplied it (callers already have it; logging tools shouldn't).
+type createdAppSummary struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	ServerID  string   `json:"serverid"`
+	SysUserID string   `json:"sysuserid"`
+	Runtime   string   `json:"runtime"`
+	Domains   []string `json:"domains"`
+	WordPress bool     `json:"wordpress"`
+	ActionID  string   `json:"actionid"`
+}
+
+// createdDatabaseSummary is returned by sp_create_database. Password is not
+// echoed back — the caller supplied it.
+type createdDatabaseSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	AppID    string `json:"appid"`
+	ServerID string `json:"serverid"`
+	User     struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"user"`
+	ActionID string `json:"actionid"`
 }
 
 func sslLabel(a *spapi.SPApp) string {
@@ -417,5 +534,285 @@ func handleListSysUsers(d *Deps) server.ToolHandlerFunc {
 			}
 		}
 		return jsonText(out)
+	}
+}
+
+func handleGetAction(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		id, err := req.RequireString("action_id")
+		if err != nil {
+			return errResult(err)
+		}
+		act, err := d.Actions.Get(id)
+		if err != nil {
+			return errResult(err)
+		}
+		return jsonText(actionDetail{
+			ID:          act.ID,
+			Status:      act.Status,
+			ServerID:    act.ServerID,
+			DateCreated: act.DateCreated,
+		})
+	}
+}
+
+func handleUpdateAppDomains(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		appID, err := req.RequireString("app")
+		if err != nil {
+			return errResult(err)
+		}
+		domains := req.GetStringSlice("domains", nil)
+		if domains == nil {
+			return errResult(fmt.Errorf("domains is required"))
+		}
+		app, err := d.Apps.Resolve(appID)
+		if err != nil {
+			return errResult(err)
+		}
+		res, err := d.Apps.UpdateDomains(app.ID, domains)
+		if err != nil {
+			return errResult(err)
+		}
+		return mcp.NewToolResultText(
+			fmt.Sprintf(`Domains for "%s" updated to [%s]. Action ID: %s`, app.Name, strings.Join(domains, ", "), res.ActionID),
+		), nil
+	}
+}
+
+func handleSetAppSSL(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		appID, err := req.RequireString("app")
+		if err != nil {
+			return errResult(err)
+		}
+		args := req.GetArguments()
+		_, hasAuto := args["auto"]
+		_, hasForce := args["force"]
+		_, hasKey := args["key"]
+		_, hasCert := args["cert"]
+
+		modes := 0
+		if hasAuto {
+			modes++
+		}
+		if hasForce {
+			modes++
+		}
+		if hasKey || hasCert {
+			modes++
+		}
+		if modes != 1 {
+			return errResult(fmt.Errorf("specify exactly one of: auto, force, or key+cert"))
+		}
+
+		body := map[string]any{}
+		switch {
+		case hasAuto:
+			body["auto"] = req.GetBool("auto", false)
+		case hasForce:
+			body["force"] = req.GetBool("force", false)
+		default: // custom cert
+			if !hasKey || !hasCert {
+				return errResult(fmt.Errorf("custom SSL requires both key and cert"))
+			}
+			body["key"] = req.GetString("key", "")
+			body["cert"] = req.GetString("cert", "")
+			if cacerts := req.GetString("cacerts", ""); cacerts != "" {
+				body["cacerts"] = cacerts
+			} else {
+				body["cacerts"] = nil
+			}
+		}
+
+		app, err := d.Apps.Resolve(appID)
+		if err != nil {
+			return errResult(err)
+		}
+		res, err := d.Apps.SetSSL(app.ID, body)
+		if err != nil {
+			return errResult(err)
+		}
+		return mcp.NewToolResultText(
+			fmt.Sprintf(`SSL updated for "%s". Action ID: %s`, app.Name, res.ActionID),
+		), nil
+	}
+}
+
+func handleRemoveAppSSL(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		appID, err := req.RequireString("app")
+		if err != nil {
+			return errResult(err)
+		}
+		app, err := d.Apps.Resolve(appID)
+		if err != nil {
+			return errResult(err)
+		}
+		res, err := d.Apps.RemoveSSL(app.ID)
+		if err != nil {
+			return errResult(err)
+		}
+		return mcp.NewToolResultText(
+			fmt.Sprintf(`SSL removed for "%s". Action ID: %s`, app.Name, res.ActionID),
+		), nil
+	}
+}
+
+func handleCreateApp(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		name, err := req.RequireString("name")
+		if err != nil {
+			return errResult(err)
+		}
+		serverArg, err := req.RequireString("server")
+		if err != nil {
+			return errResult(err)
+		}
+		sysuserArg, err := req.RequireString("sysuser")
+		if err != nil {
+			return errResult(err)
+		}
+		runtime, err := req.RequireString("runtime")
+		if err != nil {
+			return errResult(err)
+		}
+		domains := req.GetStringSlice("domains", nil)
+
+		srv, err := d.Servers.Resolve(serverArg)
+		if err != nil {
+			return errResult(err)
+		}
+		if !slices.Contains(srv.AvailableRuntimes, runtime) {
+			return errResult(fmt.Errorf(
+				"runtime %q not available on server %q. Available: %s",
+				runtime, srv.Name, strings.Join(srv.AvailableRuntimes, ", "),
+			))
+		}
+		su, err := d.SysUsers.Resolve(sysuserArg, srv.ID)
+		if err != nil {
+			return errResult(err)
+		}
+
+		wpTitle := req.GetString("wordpress_site_title", "")
+		wpUser := req.GetString("wordpress_admin_user", "")
+		wpPass := req.GetString("wordpress_admin_password", "")
+		wpEmail := req.GetString("wordpress_admin_email", "")
+		anyWP := wpTitle != "" || wpUser != "" || wpPass != "" || wpEmail != ""
+		allWP := wpTitle != "" && wpUser != "" && wpPass != "" && wpEmail != ""
+		if anyWP && !allWP {
+			return errResult(fmt.Errorf("WordPress install requires all four wordpress_* fields (site_title, admin_user, admin_password, admin_email)"))
+		}
+
+		create := spapi.CreateAppRequest{
+			Name:      name,
+			SysUserID: su.ID,
+			Runtime:   runtime,
+			Domains:   domains,
+		}
+		if allWP {
+			create.WordPress = &spapi.CreateAppWordPress{
+				SiteTitle:     wpTitle,
+				AdminUser:     wpUser,
+				AdminPassword: wpPass,
+				AdminEmail:    wpEmail,
+			}
+		}
+		res, err := d.Apps.Create(create)
+		if err != nil {
+			return errResult(err)
+		}
+		out := createdAppSummary{
+			ID:        res.App.ID,
+			Name:      res.App.Name,
+			ServerID:  res.App.ServerID,
+			SysUserID: res.App.SysUserID,
+			Runtime:   res.App.Runtime,
+			Domains:   res.App.Domains,
+			WordPress: allWP,
+			ActionID:  res.ActionID,
+		}
+		if out.Domains == nil {
+			out.Domains = []string{}
+		}
+		if out.ServerID == "" {
+			// API doesn't always echo serverid in the create response; fall back
+			// to the resolved server we used to validate runtime.
+			out.ServerID = srv.ID
+		}
+		return jsonText(out)
+	}
+}
+
+func handleCreateDatabase(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		appArg, err := req.RequireString("app")
+		if err != nil {
+			return errResult(err)
+		}
+		name, err := req.RequireString("name")
+		if err != nil {
+			return errResult(err)
+		}
+		userName, err := req.RequireString("user_name")
+		if err != nil {
+			return errResult(err)
+		}
+		password, err := req.RequireString("password")
+		if err != nil {
+			return errResult(err)
+		}
+		if len(password) < 8 {
+			return errResult(fmt.Errorf("password must be at least 8 characters"))
+		}
+		app, err := d.Apps.Resolve(appArg)
+		if err != nil {
+			return errResult(err)
+		}
+		res, err := d.Databases.Create(spapi.CreateDatabaseRequest{
+			AppID:    app.ID,
+			Name:     name,
+			UserName: userName,
+			Password: password,
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		out := createdDatabaseSummary{
+			ID:       res.Database.ID,
+			Name:     res.Database.Name,
+			AppID:    res.Database.AppID,
+			ServerID: res.Database.ServerID,
+			ActionID: res.ActionID,
+		}
+		out.User.ID = res.Database.User.ID
+		out.User.Name = res.Database.User.Name
+		if out.AppID == "" {
+			out.AppID = app.ID
+		}
+		if out.ServerID == "" {
+			out.ServerID = app.ServerID
+		}
+		return jsonText(out)
+	}
+}
+
+func handleDeleteDatabase(d *Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		dbID, err := req.RequireString("database")
+		if err != nil {
+			return errResult(err)
+		}
+		db, err := d.Databases.Get(dbID)
+		if err != nil {
+			return errResult(err)
+		}
+		res, err := d.Databases.Delete(dbID)
+		if err != nil {
+			return errResult(err)
+		}
+		return mcp.NewToolResultText(
+			fmt.Sprintf(`Database "%s" (%s) deleted. Action ID: %s`, db.Name, db.ID, res.ActionID),
+		), nil
 	}
 }

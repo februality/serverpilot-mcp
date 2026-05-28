@@ -25,7 +25,7 @@ After the installer downloads the binary, it launches a setup wizard. Step throu
 1. **Paste your Client ID** when prompted, then **paste your API Key** (input is hidden). The wizard verifies them against the ServerPilot API and prints a server / app count on success. It stores them in your OS keychain (or a `0600` file on headless Linux). If you want to bypass the keychain, hit Ctrl+C and re-run with `SERVERPILOT_CLIENT_ID=... SERVERPILOT_API_KEY=... serverpilot-mcp setup`.
 2. **Confirm SSH key assignment** (default: Yes). The wizard generates an Ed25519 key at `~/.ssh/serverpilot-mcp`, registers it with ServerPilot, and assigns it to every sysuser on your account. Re-running the wizard later is safe — already-assigned users are skipped.
 3. **Pick which AI tools to patch** from the multi-select list. Detected tools are pre-checked; press space to toggle, enter to confirm. Skip anything you don't want touched.
-4. **Restart your AI tool** (quit and relaunch Claude Code, Cursor, etc.). The 15 tools listed below are now available.
+4. **Restart your AI tool** (quit and relaunch Claude Code, Cursor, etc.). The 22 tools listed below are now available.
 5. **Verify** with `serverpilot-mcp doctor` — checks credentials, hits the API, and inspects each patched client config.
 
 If anything looks off, `serverpilot-mcp status` shows what's configured and where, and `serverpilot-mcp setup` is always re-runnable.
@@ -179,10 +179,17 @@ Once the wizard is done and your AI tool has been restarted, just talk to it. Be
 | `sp_get_server` | Server details by ID or name |
 | `sp_list_apps` | List apps, optionally filtered by server |
 | `sp_get_app` | App details by ID, name, or domain (secrets redacted) |
+| `sp_create_app` | Create a new app on a server/sysuser; optionally installs WordPress |
 | `sp_update_app_runtime` | Change an app's PHP runtime version (validated against the server's available runtimes) |
+| `sp_update_app_domains` | Replace the full list of domains an app serves |
+| `sp_set_app_ssl` | Configure SSL: AutoSSL toggle, ForceSSL toggle, or custom certificate |
+| `sp_remove_app_ssl` | Remove SSL configuration from an app |
 | `sp_list_databases` | List databases, optionally filtered by app or server |
+| `sp_create_database` | Create a MySQL database (with user) for an app |
+| `sp_delete_database` | Delete a database and its user |
 | `sp_update_db_password` | Change a database user's MySQL password |
 | `sp_list_sysusers` | List system users, optionally filtered by server |
+| `sp_get_action` | Poll the status of any ServerPilot action returned by a write tool |
 | `sp_ssh_setup` | Generate the SSH key, register with ServerPilot, assign to sysusers |
 | `sp_ssh_status` | Show SSH key status (local + remote + per-sysuser) |
 | `sp_ssh_remove` | Unassign the SSH key from sysusers; optionally delete it from ServerPilot |
@@ -300,7 +307,7 @@ Environment variables (all optional except credentials):
 | `SP_SSH_TIMEOUT_MS` | `30000` | SSH connection timeout |
 | `SP_SITE_EXEC_TIMEOUT_MS` | `120000` | `site_exec` default timeout. Pass `timeout: 0` from the tool call to disable. |
 | `SP_INSECURE_DISABLE_HOST_KEY_CHECK` | unset | Set to `1` to bypass host-key verification (testing only — logs a warning) |
-| `SP_READ_ONLY` | unset | Set to `1` to hide every write tool (`site_exec`, `site_write_file`, `sp_update_app_runtime`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`) so the AI tool can read but cannot change anything. `setup` and `install` both accept `--read-only` to bake this into the client config. |
+| `SP_READ_ONLY` | unset | Set to `1` to hide every write tool (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`) so the AI tool can read but cannot change anything. `setup` and `install` both accept `--read-only` to bake this into the client config. |
 
 ## Building from source
 
@@ -315,9 +322,9 @@ go test ./...
 
 ## Security notes
 
-> ⚠️ **Safety.** We deliberately left out the API tools for deleting sites, servers, sysusers, and databases, so your model can't tear those down through ServerPilot itself. But it can still do plenty of damage if you're not careful: it has shell access as your sysuser, so it can `rm -rf` your site files, drop database tables, overwrite files with no backup, change PHP runtimes, and reset database passwords. Read what it's about to do before you approve it, and keep your own backups.
+> ⚠️ **Safety.** We deliberately left out the API tools for deleting sites, servers, and sysusers, so your model can't tear those down through ServerPilot itself. It *can* delete databases (`sp_delete_database`) and SSL config (`sp_remove_app_ssl`), and create apps and databases. It also has shell access as your sysuser, so it can `rm -rf` your site files, drop database tables, overwrite files with no backup, change PHP runtimes, and reset database passwords. Read what it's about to do before you approve it, and keep your own backups. If you'd rather not give it any write capability, see read-only mode below.
 >
-> **Read-only mode.** If you'd rather not give the AI tool any way to change things, run `serverpilot-mcp setup --read-only` (or pass `--read-only` to `install`). The MCP server will start up with the six write tools (`site_exec`, `site_write_file`, `sp_update_app_runtime`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`) hidden — the model never sees them in `tools/list`, so it's technically unable to call them. `serverpilot-mcp status` shows which clients are configured this way.
+> **Read-only mode.** If you'd rather not give the AI tool any way to change things, run `serverpilot-mcp setup --read-only` (or pass `--read-only` to `install`). The MCP server will start up with every write tool hidden — the twelve writes (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`) never appear in `tools/list`, so the model is technically unable to call them. `serverpilot-mcp status` shows which clients are configured this way.
 
 - **Credentials** are stored in the OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service) or a `0600` file in your config directory if no keychain is available. Env vars override both.
 - **SSH host keys** are pinned on first contact (TOFU) into `~/.ssh/serverpilot-mcp_known_hosts`, separate from your personal `known_hosts`. A subsequent mismatch fails loud and refuses to connect; remove the offending line manually if you genuinely re-imaged the server.

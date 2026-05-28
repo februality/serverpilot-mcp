@@ -74,3 +74,41 @@ func (d *DatabasesAPI) UpdatePassword(dbID, dbUserID, password string) (*SPActio
 	}
 	return &resp, nil
 }
+
+type CreateDatabaseRequest struct {
+	AppID    string
+	Name     string
+	UserName string
+	Password string
+}
+
+type CreateDatabaseResult struct {
+	Database SPDatabase
+	ActionID string
+}
+
+func (d *DatabasesAPI) Create(req CreateDatabaseRequest) (*CreateDatabaseResult, error) {
+	d.cache.InvalidatePrefix("database")
+	body := map[string]any{
+		"appid": req.AppID,
+		"name":  req.Name,
+		"user":  map[string]any{"name": req.UserName, "password": req.Password},
+	}
+	var resp struct {
+		ActionID string     `json:"actionid"`
+		Data     SPDatabase `json:"data"`
+	}
+	if err := d.client.Post("/dbs", body, &resp); err != nil {
+		return nil, err
+	}
+	return &CreateDatabaseResult{Database: resp.Data, ActionID: resp.ActionID}, nil
+}
+
+func (d *DatabasesAPI) Delete(id string) (*SPActionResponse, error) {
+	d.cache.InvalidatePrefix("database")
+	var resp SPActionResponse
+	if err := d.client.Delete("/dbs/"+id, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
