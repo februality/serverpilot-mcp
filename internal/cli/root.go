@@ -46,6 +46,7 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(NewUninstall())
 	root.AddCommand(NewStatus())
 	root.AddCommand(NewDoctor())
+	root.AddCommand(NewAccounts())
 	return root
 }
 

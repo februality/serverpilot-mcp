@@ -6,12 +6,113 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // FileStore persists credentials as JSON at mode 0600 in the user's config
 // directory. Used as a fallback when the OS keychain isn't available.
 type FileStore struct {
 	path string
+}
+
+// fileEnvelope is the on-disk JSON shape. Field declaration order is
+// alphabetical so a legacy-only install round-trips byte-identical to the
+// pre-multi-account format (which used a flat map<string,string> with Go's
+// sorted-key map marshaling).
+type fileEnvelope struct {
+	Accounts map[string]map[string]string `json:"accounts,omitempty"`
+	APIKey   string                       `json:"api_key,omitempty"`
+	ClientID string                       `json:"client_id,omitempty"`
+}
+
+func (e *fileEnvelope) empty() bool {
+	return e.ClientID == "" && e.APIKey == "" && len(e.Accounts) == 0
+}
+
+func (e *fileEnvelope) get(account, attr string) (string, bool) {
+	if account == LegacyAccount {
+		v := e.legacyField(attr)
+		return v, v != ""
+	}
+	if e.Accounts == nil {
+		return "", false
+	}
+	m, ok := e.Accounts[account]
+	if !ok {
+		return "", false
+	}
+	v, ok := m[attr]
+	if !ok || v == "" {
+		return "", false
+	}
+	return v, true
+}
+
+func (e *fileEnvelope) legacyField(attr string) string {
+	switch attr {
+	case KeyClientID:
+		return e.ClientID
+	case KeyAPIKey:
+		return e.APIKey
+	}
+	return ""
+}
+
+func (e *fileEnvelope) set(account, attr, value string) {
+	if account == LegacyAccount {
+		switch attr {
+		case KeyClientID:
+			e.ClientID = value
+		case KeyAPIKey:
+			e.APIKey = value
+		}
+		return
+	}
+	if e.Accounts == nil {
+		e.Accounts = map[string]map[string]string{}
+	}
+	if e.Accounts[account] == nil {
+		e.Accounts[account] = map[string]string{}
+	}
+	e.Accounts[account][attr] = value
+}
+
+func (e *fileEnvelope) delete(account, attr string) bool {
+	if account == LegacyAccount {
+		switch attr {
+		case KeyClientID:
+			if e.ClientID == "" {
+				return false
+			}
+			e.ClientID = ""
+			return true
+		case KeyAPIKey:
+			if e.APIKey == "" {
+				return false
+			}
+			e.APIKey = ""
+			return true
+		}
+		return false
+	}
+	if e.Accounts == nil {
+		return false
+	}
+	m, ok := e.Accounts[account]
+	if !ok {
+		return false
+	}
+	if _, ok := m[attr]; !ok {
+		return false
+	}
+	delete(m, attr)
+	if len(m) == 0 {
+		delete(e.Accounts, account)
+	}
+	if len(e.Accounts) == 0 {
+		e.Accounts = nil
+	}
+	return true
 }
 
 // DefaultFilePath returns the canonical credentials-file path for this OS.
@@ -33,29 +134,35 @@ func OpenFile() (Store, error) {
 	return &FileStore{path: p}, nil
 }
 
-func (f *FileStore) load() (map[string]string, error) {
+func (f *FileStore) load() (*fileEnvelope, error) {
+	env := &fileEnvelope{}
 	b, err := os.ReadFile(f.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return map[string]string{}, nil
+			return env, nil
 		}
 		return nil, err
 	}
-	m := map[string]string{}
 	if len(b) == 0 {
-		return m, nil
+		return env, nil
 	}
-	if err := json.Unmarshal(b, &m); err != nil {
+	if err := json.Unmarshal(b, env); err != nil {
 		return nil, fmt.Errorf("parse credentials file %s: %w", f.path, err)
 	}
-	return m, nil
+	return env, nil
 }
 
-func (f *FileStore) save(m map[string]string) error {
+func (f *FileStore) save(env *fileEnvelope) error {
+	if env.empty() {
+		if err := os.Remove(f.path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(m, "", "  ")
+	b, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -67,42 +174,66 @@ func (f *FileStore) save(m map[string]string) error {
 }
 
 func (f *FileStore) Get(key string) (string, error) {
-	m, err := f.load()
+	return f.GetFor(LegacyAccount, key)
+}
+
+func (f *FileStore) Set(key, value string) error {
+	return f.SetFor(LegacyAccount, key, value)
+}
+
+func (f *FileStore) Delete(key string) error {
+	return f.DeleteFor(LegacyAccount, key)
+}
+
+func (f *FileStore) GetFor(account, attr string) (string, error) {
+	env, err := f.load()
 	if err != nil {
 		return "", err
 	}
-	v, ok := m[key]
+	v, ok := env.get(account, attr)
 	if !ok {
 		return "", ErrNotFound
 	}
 	return v, nil
 }
 
-func (f *FileStore) Set(key, value string) error {
-	m, err := f.load()
+func (f *FileStore) SetFor(account, attr, value string) error {
+	env, err := f.load()
 	if err != nil {
 		return err
 	}
-	m[key] = value
-	return f.save(m)
+	env.set(account, attr, value)
+	return f.save(env)
 }
 
-func (f *FileStore) Delete(key string) error {
-	m, err := f.load()
+func (f *FileStore) DeleteFor(account, attr string) error {
+	env, err := f.load()
 	if err != nil {
 		return err
 	}
-	if _, ok := m[key]; !ok {
+	if !env.delete(account, attr) {
 		return nil
 	}
-	delete(m, key)
-	if len(m) == 0 {
-		if err := os.Remove(f.path); err != nil && !os.IsNotExist(err) {
-			return err
+	return f.save(env)
+}
+
+func (f *FileStore) Accounts() ([]string, error) {
+	env, err := f.load()
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	if env.ClientID != "" || env.APIKey != "" {
+		out = append(out, LegacyAccount)
+	}
+	for name, m := range env.Accounts {
+		if len(m) == 0 {
+			continue
 		}
-		return nil
+		out = append(out, name)
 	}
-	return f.save(m)
+	sort.Strings(out)
+	return out, nil
 }
 
 func (f *FileStore) Backend() Source { return SourceFile }

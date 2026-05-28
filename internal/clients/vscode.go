@@ -7,10 +7,10 @@ import "path/filepath"
 // alongside command/args.
 type vscode struct{ p jsonPatcher }
 
-func newVSCode() Patcher {
+func newVSCode(account string) Patcher {
 	return vscode{p: jsonPatcher{
 		configPath: homePath(".vscode", "mcp.json"),
-		jsonPath:   "servers." + ServerKey,
+		jsonPath:   "servers." + EntryName(account),
 	}}
 }
 
@@ -28,3 +28,4 @@ func (v vscode) Patch(binaryPath string, env map[string]string, dryRun bool) (bo
 
 func (v vscode) Unpatch() (bool, error)                 { return v.p.unpatch() }
 func (v vscode) CurrentEnv() (map[string]string, error) { return v.p.currentEnv() }
+func (v vscode) Entries() ([]string, error)             { return v.p.entries() }

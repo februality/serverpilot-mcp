@@ -265,29 +265,21 @@ export SERVERPILOT_API_KEY=sk_xxxxxxxxxxxxxxxxxxxxxxxx
 
 ## Multiple ServerPilot accounts
 
-Register the binary multiple times under distinct names with credentials passed via `env`:
+Run setup once per account, naming each one:
 
-```json
-{
-  "mcpServers": {
-    "serverpilot-acme": {
-      "command": "/usr/local/bin/serverpilot-mcp",
-      "args": ["serve"],
-      "env": {
-        "SERVERPILOT_CLIENT_ID": "...",
-        "SERVERPILOT_API_KEY":   "..."
-      }
-    },
-    "serverpilot-globex": {
-      "command": "/usr/local/bin/serverpilot-mcp",
-      "args": ["serve"],
-      "env": {
-        "SERVERPILOT_CLIENT_ID": "...",
-        "SERVERPILOT_API_KEY":   "..."
-      }
-    }
-  }
-}
+```sh
+serverpilot-mcp setup --account acme
+serverpilot-mcp setup --account globex
+```
+
+Each account gets its own MCP-client entry (`serverpilot-acme`, `serverpilot-globex`), keychain-stored credentials, and SSH key pair (`~/.ssh/serverpilot-mcp-acme`). An existing single-account install — its `serverpilot` entry, keychain credentials, and `~/.ssh/serverpilot-mcp` key — is left untouched.
+
+Inspect or manage configured accounts:
+
+```sh
+serverpilot-mcp accounts list
+serverpilot-mcp accounts remove --account acme --yes
+serverpilot-mcp uninstall --account acme --all
 ```
 
 Each entry runs an independent `serve` process bound to its own account; tool names are namespaced by your MCP client.
@@ -308,6 +300,7 @@ Environment variables (all optional except credentials):
 | `SP_SITE_EXEC_TIMEOUT_MS` | `120000` | `site_exec` default timeout. Pass `timeout: 0` from the tool call to disable. |
 | `SP_INSECURE_DISABLE_HOST_KEY_CHECK` | unset | Set to `1` to bypass host-key verification (testing only — logs a warning) |
 | `SP_READ_ONLY` | unset | Set to `1` to hide every write tool (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`) so the AI tool can read but cannot change anything. `setup` and `install` both accept `--read-only` to bake this into the client config. |
+| `SP_ACCOUNT` | unset | Named ServerPilot account this `serve` process is bound to. Set automatically by `setup --account <name>` / `install --account <name>` in the patched client config — don't set manually unless you know what you're doing. |
 
 ## Building from source
 

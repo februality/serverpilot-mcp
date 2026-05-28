@@ -25,11 +25,11 @@ func withTempHome(t *testing.T) string {
 // TestPatchers_SmokeRoundTrip exercises every patcher: patch → re-patch
 // (no-op) → unpatch → file no longer contains our entry.
 func TestPatchers_SmokeRoundTrip(t *testing.T) {
-	for _, p := range All() {
+	for _, p := range All("") {
 		t.Run(p.ID(), func(t *testing.T) {
 			withTempHome(t)
 			// Re-construct after HOME was overridden.
-			p := ByID(p.ID())
+			p := ByID(p.ID(), "")
 
 			changed, _, err := p.Patch(binPath, nil, false)
 			if err != nil {
@@ -60,7 +60,7 @@ func TestPatchers_SmokeRoundTrip(t *testing.T) {
 
 func TestVSCode_UsesServersKey(t *testing.T) {
 	withTempHome(t)
-	p := ByID("vscode")
+	p := ByID("vscode", "")
 	if _, _, err := p.Patch(binPath, nil, false); err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +83,10 @@ func TestVSCode_UsesServersKey(t *testing.T) {
 // rely on across all client formats (JSON / VS Code / TOML).
 func TestPatchers_ReadOnlyEnvRoundTrip(t *testing.T) {
 	env := map[string]string{"SP_READ_ONLY": "1"}
-	for _, p := range All() {
+	for _, p := range All("") {
 		t.Run(p.ID(), func(t *testing.T) {
 			withTempHome(t)
-			p := ByID(p.ID())
+			p := ByID(p.ID(), "")
 
 			if _, _, err := p.Patch(binPath, env, false); err != nil {
 				t.Fatalf("Patch err: %v", err)
@@ -124,11 +124,11 @@ func TestRegistry_IDsAndByID(t *testing.T) {
 		if got[i] != id {
 			t.Errorf("IDs()[%d] = %q, want %q", i, got[i], id)
 		}
-		if ByID(id) == nil {
+		if ByID(id, "") == nil {
 			t.Errorf("ByID(%q) returned nil", id)
 		}
 	}
-	if ByID("nonexistent") != nil {
+	if ByID("nonexistent", "") != nil {
 		t.Error("ByID('nonexistent') should return nil")
 	}
 }

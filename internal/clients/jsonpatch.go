@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -128,6 +129,49 @@ func (p jsonPatcher) unpatch() (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// entries enumerates all "serverpilot"-style entries under the parent of
+// jsonPath (i.e. "mcpServers" or "servers"). Returns the account suffixes
+// (LegacyAccount "" for the bare "serverpilot" entry).
+func (p jsonPatcher) entries() ([]string, error) {
+	parent, _ := parentPath(p.jsonPath)
+	b, err := os.ReadFile(p.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil, nil
+	}
+	if !gjson.ValidBytes(b) {
+		return nil, fmt.Errorf("%w: %s", ErrMalformedConfig, p.configPath)
+	}
+	node := gjson.GetBytes(b, parent)
+	if !node.Exists() || !node.IsObject() {
+		return nil, nil
+	}
+	out := []string{}
+	node.ForEach(func(k, _ gjson.Result) bool {
+		if acct, ok := parseEntryName(k.String()); ok {
+			out = append(out, acct)
+		}
+		return true
+	})
+	sortAccounts(out)
+	return out, nil
+}
+
+// parentPath returns everything before the last "." in a sjson dot-path.
+// "mcpServers.serverpilot" → "mcpServers". Paths without a "." return "".
+func parentPath(jsonPath string) (string, string) {
+	i := strings.LastIndex(jsonPath, ".")
+	if i < 0 {
+		return "", jsonPath
+	}
+	return jsonPath[:i], jsonPath[i+1:]
 }
 
 func indentJSON(b []byte) ([]byte, error) {

@@ -4,10 +4,10 @@ import "path/filepath"
 
 type windsurf struct{ p jsonPatcher }
 
-func newWindsurf() Patcher {
+func newWindsurf(account string) Patcher {
 	return windsurf{p: jsonPatcher{
 		configPath: homePath(".codeium", "windsurf", "mcp_config.json"),
-		jsonPath:   "mcpServers." + ServerKey,
+		jsonPath:   "mcpServers." + EntryName(account),
 	}}
 }
 
@@ -25,3 +25,4 @@ func (w windsurf) Patch(binaryPath string, env map[string]string, dryRun bool) (
 
 func (w windsurf) Unpatch() (bool, error)                 { return w.p.unpatch() }
 func (w windsurf) CurrentEnv() (map[string]string, error) { return w.p.currentEnv() }
+func (w windsurf) Entries() ([]string, error)             { return w.p.entries() }

@@ -2,6 +2,8 @@ package creds
 
 import (
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/99designs/keyring"
 )
@@ -62,6 +64,51 @@ func (k *keyringStore) Delete(key string) error {
 		return nil
 	}
 	return err
+}
+
+func (k *keyringStore) GetFor(account, attr string) (string, error) {
+	return k.Get(accountKey(account, attr))
+}
+
+func (k *keyringStore) SetFor(account, attr, value string) error {
+	return k.Set(accountKey(account, attr), value)
+}
+
+func (k *keyringStore) DeleteFor(account, attr string) error {
+	return k.Delete(accountKey(account, attr))
+}
+
+func (k *keyringStore) Accounts() ([]string, error) {
+	keys, err := k.r.Keys()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]struct{}{}
+	hasLegacy := false
+	for _, key := range keys {
+		if key == KeyClientID || key == KeyAPIKey {
+			hasLegacy = true
+			continue
+		}
+		idx := strings.LastIndex(key, ":")
+		if idx < 1 {
+			continue
+		}
+		attr := key[idx+1:]
+		if attr != KeyClientID && attr != KeyAPIKey {
+			continue
+		}
+		seen[key[:idx]] = struct{}{}
+	}
+	out := make([]string, 0, len(seen)+1)
+	if hasLegacy {
+		out = append(out, LegacyAccount)
+	}
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func (k *keyringStore) Backend() Source { return SourceKeyring }

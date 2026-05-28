@@ -28,6 +28,7 @@ import (
 type Options struct {
 	Out         io.Writer
 	Prompter    Prompter
+	Account     string   // "" = unnamed/legacy account; otherwise a named account slug
 	Unattended  bool     // when true, skip prompts and use defaults
 	BinaryPath  string   // path to install into MCP-client configs
 	SkipSSH     bool     // skip SSH key generation/registration/assignment
@@ -57,20 +58,24 @@ func Run(opts Options) error {
 		}
 		opts.BinaryPath = bp
 	}
+	defKeyPath, defKeyName, _ := config.AccountDefaults(opts.Account)
 	if opts.SSHKeyPath == "" {
-		p, err := config.ExpandHome(config.DefaultSSHKeyPath)
+		p, err := config.ExpandHome(defKeyPath)
 		if err != nil {
 			return err
 		}
 		opts.SSHKeyPath = p
 	}
 	if opts.SSHKeyName == "" {
-		opts.SSHKeyName = config.DefaultSSHKeyName
+		opts.SSHKeyName = defKeyName
 	}
 	w := opts.Out
 
 	// Step 1: banner
 	printBanner(w)
+	if opts.Account != "" {
+		fmt.Fprintf(w, "  Setting up account %q — credentials, SSH key, and client entry suffixed -%s.\n\n", opts.Account, opts.Account)
+	}
 
 	// Step 2-4: credentials + verify
 	clientID, apiKey, err := collectCredentials(opts)
@@ -92,7 +97,7 @@ func Run(opts Options) error {
 	fmt.Fprintf(w, "  ✓ Verified — %d servers, %d apps\n\n", len(srvList), len(appList))
 
 	// Step 5: store creds
-	if err := storeCreds(w, clientID, apiKey); err != nil {
+	if err := storeCreds(w, opts.Account, clientID, apiKey); err != nil {
 		return err
 	}
 
@@ -173,15 +178,15 @@ func nonEmpty(label string) func(string) error {
 	}
 }
 
-func storeCreds(w io.Writer, clientID, apiKey string) error {
+func storeCreds(w io.Writer, account, clientID, apiKey string) error {
 	store, err := creds.Open()
 	if err != nil {
 		return fmt.Errorf("open credentials store: %w", err)
 	}
-	if err := store.Set(creds.KeyClientID, clientID); err != nil {
+	if err := store.SetFor(account, creds.KeyClientID, clientID); err != nil {
 		return fmt.Errorf("store client ID: %w", err)
 	}
-	if err := store.Set(creds.KeyAPIKey, apiKey); err != nil {
+	if err := store.SetFor(account, creds.KeyAPIKey, apiKey); err != nil {
 		return fmt.Errorf("store API key: %w", err)
 	}
 	switch store.Backend() {
@@ -354,16 +359,24 @@ func bootstrapSSH(w io.Writer, opts Options, sshkeys *spapi.SSHKeysAPI, sysusers
 }
 
 // patchEnv builds the env block written into each client's MCP server
-// entry. Returns nil (omitted on the wire) unless ReadOnly is set.
+// entry. Returns nil (omitted on the wire) when neither flag is set so
+// existing single-account installs produce byte-identical output.
 func patchEnv(opts Options) map[string]string {
-	if !opts.ReadOnly {
+	env := map[string]string{}
+	if opts.ReadOnly {
+		env["SP_READ_ONLY"] = "1"
+	}
+	if opts.Account != "" {
+		env["SP_ACCOUNT"] = opts.Account
+	}
+	if len(env) == 0 {
 		return nil
 	}
-	return map[string]string{"SP_READ_ONLY": "1"}
+	return env
 }
 
 func patchClients(w io.Writer, opts Options) ([]string, error) {
-	all := clients.All()
+	all := clients.All(opts.Account)
 
 	// Filter to OnlyClients if specified.
 	if len(opts.OnlyClients) > 0 {
@@ -449,6 +462,10 @@ func patchClients(w io.Writer, opts Options) ([]string, error) {
 func printSummary(w io.Writer, opts Options, patched []string) {
 	fmt.Fprintln(w, "  Setup complete.")
 	fmt.Fprintln(w)
+	if opts.Account != "" {
+		fmt.Fprintf(w, "  Account:    %s\n", opts.Account)
+		fmt.Fprintf(w, "  Entry:      %s\n", clients.EntryName(opts.Account))
+	}
 	fmt.Fprintf(w, "  Binary:     %s\n", opts.BinaryPath)
 	fmt.Fprintf(w, "  SSH key:    %s\n", opts.SSHKeyPath)
 	fmt.Fprintf(w, "  MCP server: %s v%s\n", mcpserver.ServerName, mcpserver.ServerVersion)

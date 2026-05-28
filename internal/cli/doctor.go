@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/tidwall/gjson"
 
 	"github.com/februality/serverpilot-mcp/internal/clients"
 	"github.com/februality/serverpilot-mcp/internal/config"
@@ -28,20 +27,43 @@ func runDoctor() error {
 	fmt.Println("Running diagnostics…")
 	fmt.Println()
 
-	// 1. Credentials present?
-	r, err := creds.ResolveAPICredentials()
+	accts := discoveredAccounts()
+	if len(accts) == 0 {
+		fmt.Println("  ✗ No accounts configured. Run: serverpilot-mcp setup")
+		return errors.New("missing credentials")
+	}
+
+	var firstErr error
+	for _, account := range accts {
+		fmt.Printf("Account: %s\n", accountLabel(account))
+		if err := doctorAccount(account); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		fmt.Println()
+	}
+	if firstErr == nil {
+		fmt.Println("All checks complete.")
+	}
+	return firstErr
+}
+
+func doctorAccount(account string) error {
+	r, err := creds.ResolveAPICredentialsFor(account)
 	switch {
 	case err != nil:
 		fmt.Printf("  ✗ Credentials store error: %s\n", err)
 		return err
 	case r.Source == creds.SourceNotFound:
-		fmt.Println("  ✗ No credentials configured. Run: serverpilot-mcp setup")
-		return errors.New("missing credentials")
+		cmd := "serverpilot-mcp setup"
+		if account != "" {
+			cmd = fmt.Sprintf("serverpilot-mcp setup --account %s", account)
+		}
+		fmt.Printf("  ✗ No credentials configured. Run: %s\n", cmd)
+		return fmt.Errorf("missing credentials for %s", accountLabel(account))
 	default:
 		fmt.Printf("  ✓ Credentials available (source: %s)\n", r.Source)
 	}
 
-	// 2. API reachable?
 	cache := spapi.NewTTLCache(60)
 	apiClient := spapi.NewClient(r.ClientID, r.APIKey)
 	servers := spapi.NewServersAPI(apiClient, cache)
@@ -52,62 +74,42 @@ func runDoctor() error {
 	}
 	fmt.Printf("  ✓ ServerPilot API reachable (%d servers)\n", len(srvList))
 
-	// 3. SSH key present?
-	keyPath, _ := config.ExpandHome(config.DefaultSSHKeyPath)
-	if _, err := os.Stat(keyPath); err == nil {
-		fmt.Printf("  ✓ SSH key at %s\n", keyPath)
+	keyPath, _, _ := config.AccountDefaults(account)
+	expanded, _ := config.ExpandHome(keyPath)
+	if _, err := os.Stat(expanded); err == nil {
+		fmt.Printf("  ✓ SSH key at %s\n", expanded)
 	} else {
-		fmt.Printf("  ✗ SSH key missing at %s — run setup\n", keyPath)
+		fmt.Printf("  ✗ SSH key missing at %s — run setup\n", expanded)
 	}
 
-	// 4. Per-client config validity.
-	fmt.Println()
-	fmt.Println("MCP-client configs:")
-	for _, p := range clients.All() {
+	fmt.Println("  MCP-client configs:")
+	for _, p := range clients.All(account) {
 		_, path, _ := p.Detect()
-		b, err := os.ReadFile(path)
+		entries, err := p.Entries()
 		if err != nil {
-			if os.IsNotExist(err) {
-				fmt.Printf("  · %-16s no config file at %s\n", p.DisplayName(), path)
+			fmt.Printf("    ✗ %-16s %s\n", p.DisplayName(), err)
+			continue
+		}
+		hasEntry := false
+		for _, e := range entries {
+			if e == account {
+				hasEntry = true
+				break
+			}
+		}
+		if !hasEntry {
+			if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+				fmt.Printf("    · %-16s no config file at %s\n", p.DisplayName(), path)
 			} else {
-				fmt.Printf("  ✗ %-16s %s\n", p.DisplayName(), err)
+				fmt.Printf("    · %-16s no entry for this account\n", p.DisplayName())
 			}
 			continue
 		}
 		roSuffix := ""
-		if env, err := p.CurrentEnv(); err == nil && config.IsTrueEnv(env["SP_READ_ONLY"]) {
+		if env, envErr := p.CurrentEnv(); envErr == nil && config.IsTrueEnv(env[readOnlyEnvVar]) {
 			roSuffix = "  [read-only]"
 		}
-		// Light validation: JSON parses, our key is present.
-		switch p.ID() {
-		case "codex":
-			if !gjson.ValidBytes(b) || true {
-				// TOML — skip parse here; tomlpatch_test covers it.
-				fmt.Printf("  ✓ %-16s present at %s%s\n", p.DisplayName(), path, roSuffix)
-			}
-		case "vscode":
-			if !gjson.ValidBytes(b) {
-				fmt.Printf("  ✗ %-16s malformed JSON\n", p.DisplayName())
-				continue
-			}
-			if gjson.GetBytes(b, "servers."+clients.ServerKey).Exists() {
-				fmt.Printf("  ✓ %-16s configured%s\n", p.DisplayName(), roSuffix)
-			} else {
-				fmt.Printf("  · %-16s present but no serverpilot entry\n", p.DisplayName())
-			}
-		default:
-			if !gjson.ValidBytes(b) {
-				fmt.Printf("  ✗ %-16s malformed JSON\n", p.DisplayName())
-				continue
-			}
-			if gjson.GetBytes(b, "mcpServers."+clients.ServerKey).Exists() {
-				fmt.Printf("  ✓ %-16s configured%s\n", p.DisplayName(), roSuffix)
-			} else {
-				fmt.Printf("  · %-16s present but no serverpilot entry\n", p.DisplayName())
-			}
-		}
+		fmt.Printf("    ✓ %-16s configured at %s%s\n", p.DisplayName(), path, roSuffix)
 	}
-	fmt.Println()
-	fmt.Println("All checks complete.")
 	return nil
 }

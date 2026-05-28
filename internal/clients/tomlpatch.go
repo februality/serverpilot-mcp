@@ -116,6 +116,46 @@ func (p tomlPatcher) unpatch() (bool, error) {
 	return true, atomicWrite(p.configPath, updated, 0o600)
 }
 
+// entries enumerates all "serverpilot"-style entries under the parent of
+// tablePath (e.g. "mcp_servers"). Returns the account suffixes
+// (LegacyAccount "" for the bare "serverpilot" entry).
+func (p tomlPatcher) entries() ([]string, error) {
+	if len(p.tablePath) == 0 {
+		return nil, nil
+	}
+	parent := p.tablePath[:len(p.tablePath)-1]
+	b, err := os.ReadFile(p.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil, nil
+	}
+	root := map[string]any{}
+	if err := toml.Unmarshal(b, &root); err != nil {
+		return nil, fmt.Errorf("%w: %s: %v", ErrMalformedTOML, p.configPath, err)
+	}
+	cur := root
+	for _, key := range parent {
+		next, ok := cur[key].(map[string]any)
+		if !ok {
+			return nil, nil
+		}
+		cur = next
+	}
+	out := []string{}
+	for k := range cur {
+		if acct, ok := parseEntryName(k); ok {
+			out = append(out, acct)
+		}
+	}
+	sortAccounts(out)
+	return out, nil
+}
+
 func setNested(root map[string]any, path []string, value any) {
 	if len(path) == 0 {
 		return

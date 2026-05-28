@@ -4,10 +4,10 @@ import "path/filepath"
 
 type cursor struct{ p jsonPatcher }
 
-func newCursor() Patcher {
+func newCursor(account string) Patcher {
 	return cursor{p: jsonPatcher{
 		configPath: homePath(".cursor", "mcp.json"),
-		jsonPath:   "mcpServers." + ServerKey,
+		jsonPath:   "mcpServers." + EntryName(account),
 	}}
 }
 
@@ -25,3 +25,4 @@ func (c cursor) Patch(binaryPath string, env map[string]string, dryRun bool) (bo
 
 func (c cursor) Unpatch() (bool, error)                 { return c.p.unpatch() }
 func (c cursor) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }
+func (c cursor) Entries() ([]string, error)             { return c.p.entries() }

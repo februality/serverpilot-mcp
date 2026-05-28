@@ -4,10 +4,10 @@ import "path/filepath"
 
 type claudeDesktop struct{ p jsonPatcher }
 
-func newClaudeDesktop() Patcher {
+func newClaudeDesktop(account string) Patcher {
 	return claudeDesktop{p: jsonPatcher{
 		configPath: claudeDesktopConfigPath(),
-		jsonPath:   "mcpServers." + ServerKey,
+		jsonPath:   "mcpServers." + EntryName(account),
 	}}
 }
 
@@ -27,3 +27,4 @@ func (c claudeDesktop) Patch(binaryPath string, env map[string]string, dryRun bo
 
 func (c claudeDesktop) Unpatch() (bool, error)                 { return c.p.unpatch() }
 func (c claudeDesktop) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }
+func (c claudeDesktop) Entries() ([]string, error)             { return c.p.entries() }

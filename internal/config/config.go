@@ -14,6 +14,10 @@ import (
 )
 
 type Config struct {
+	// Account is the named ServerPilot account this process is bound to,
+	// or "" (creds.LegacyAccount) for an unnamed/pre-multi-account install.
+	// Driven by SP_ACCOUNT and surfaced for status/doctor output.
+	Account           string
 	ClientID          string
 	APIKey            string
 	CredsSource       creds.Source
@@ -43,10 +47,24 @@ const (
 // detect this and print a "run `serverpilot-mcp setup`" message.
 var ErrNoCredentials = errors.New("no ServerPilot credentials configured")
 
+// AccountDefaults returns the per-account SSH key path, key name, and
+// known_hosts path. For the legacy unnamed account it returns the
+// pre-multi-account defaults unchanged.
+func AccountDefaults(account string) (sshKeyPath, sshKeyName, knownHostsPath string) {
+	if account == creds.LegacyAccount {
+		return DefaultSSHKeyPath, DefaultSSHKeyName, DefaultKnownHostsPath
+	}
+	suffix := "-" + account
+	return DefaultSSHKeyPath + suffix,
+		DefaultSSHKeyName + suffix,
+		"~/.ssh/serverpilot-mcp" + suffix + "_known_hosts"
+}
+
 // Load resolves all configuration. Credentials come from env > keychain >
 // file (see internal/creds). Other settings come from env vars only.
 func Load() (*Config, error) {
-	resolved, err := creds.ResolveAPICredentials()
+	account := os.Getenv("SP_ACCOUNT")
+	resolved, err := creds.ResolveAPICredentialsFor(account)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +72,11 @@ func Load() (*Config, error) {
 		return nil, ErrNoCredentials
 	}
 
+	defKeyPath, defKeyName, defKnownHosts := AccountDefaults(account)
+
 	sshKeyPath := os.Getenv("SP_SSH_KEY_PATH")
 	if sshKeyPath == "" {
-		sshKeyPath = DefaultSSHKeyPath
+		sshKeyPath = defKeyPath
 	}
 	expanded, err := ExpandHome(sshKeyPath)
 	if err != nil {
@@ -65,12 +85,12 @@ func Load() (*Config, error) {
 
 	sshKeyName := os.Getenv("SP_SSH_KEY_NAME")
 	if sshKeyName == "" {
-		sshKeyName = DefaultSSHKeyName
+		sshKeyName = defKeyName
 	}
 
 	knownHostsPath := os.Getenv("SP_KNOWN_HOSTS_PATH")
 	if knownHostsPath == "" {
-		knownHostsPath = DefaultKnownHostsPath
+		knownHostsPath = defKnownHosts
 	}
 	expandedKnownHosts, err := ExpandHome(knownHostsPath)
 	if err != nil {
@@ -78,6 +98,7 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
+		Account:           account,
 		ClientID:          resolved.ClientID,
 		APIKey:            resolved.APIKey,
 		CredsSource:       resolved.Source,

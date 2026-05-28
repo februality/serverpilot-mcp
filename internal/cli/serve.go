@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -25,7 +26,11 @@ func runServe() error {
 	cfg, err := config.Load()
 	if err != nil {
 		if errors.Is(err, config.ErrNoCredentials) {
-			return fmt.Errorf("no ServerPilot credentials found.\n\nRun:\n  serverpilot-mcp setup\n\nor set SERVERPILOT_CLIENT_ID and SERVERPILOT_API_KEY")
+			setupCmd := "  serverpilot-mcp setup"
+			if account := os.Getenv("SP_ACCOUNT"); account != "" {
+				setupCmd = fmt.Sprintf("  serverpilot-mcp setup --account %s", account)
+			}
+			return fmt.Errorf("no ServerPilot credentials found.\n\nRun:\n%s\n\nor set SERVERPILOT_CLIENT_ID and SERVERPILOT_API_KEY", setupCmd)
 		}
 		return fmt.Errorf("load config: %w", err)
 	}

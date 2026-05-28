@@ -5,10 +5,10 @@ import "path/filepath"
 // Codex CLI uses ~/.codex/config.toml with [mcp_servers.<name>] tables.
 type codex struct{ p tomlPatcher }
 
-func newCodex() Patcher {
+func newCodex(account string) Patcher {
 	return codex{p: tomlPatcher{
 		configPath: homePath(".codex", "config.toml"),
-		tablePath:  []string{"mcp_servers", ServerKey},
+		tablePath:  []string{"mcp_servers", EntryName(account)},
 	}}
 }
 
@@ -26,3 +26,4 @@ func (c codex) Patch(binaryPath string, env map[string]string, dryRun bool) (boo
 
 func (c codex) Unpatch() (bool, error)                 { return c.p.unpatch() }
 func (c codex) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }
+func (c codex) Entries() ([]string, error)             { return c.p.entries() }

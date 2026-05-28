@@ -2,10 +2,10 @@ package clients
 
 type claudeCode struct{ p jsonPatcher }
 
-func newClaudeCode() Patcher {
+func newClaudeCode(account string) Patcher {
 	return claudeCode{p: jsonPatcher{
 		configPath: homePath(".claude.json"),
-		jsonPath:   "mcpServers." + ServerKey,
+		jsonPath:   "mcpServers." + EntryName(account),
 	}}
 }
 
@@ -26,3 +26,4 @@ func (c claudeCode) Patch(binaryPath string, env map[string]string, dryRun bool)
 
 func (c claudeCode) Unpatch() (bool, error)                 { return c.p.unpatch() }
 func (c claudeCode) CurrentEnv() (map[string]string, error) { return c.p.currentEnv() }
+func (c claudeCode) Entries() ([]string, error)             { return c.p.entries() }
