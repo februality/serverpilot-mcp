@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -43,133 +44,159 @@ func RegisterAPITools(s *server.MCPServer, d *Deps) {
 
 // ---- Tool definitions ----
 
+const asyncNote = " Asynchronous: returns an action ID immediately; call sp_get_action with wait_seconds to wait for it to finish."
+
+func refreshParam() mcp.ToolOption {
+	return mcp.WithBoolean("refresh", mcp.Description("Bypass the 5-minute cache, e.g. after changes made in the ServerPilot dashboard"))
+}
+
 func toolListServers() mcp.Tool {
-	return mcp.NewTool("sp_list_servers",
-		mcp.WithDescription("List all ServerPilot servers with IPs, plans, and available runtimes"),
+	return newTool("sp_list_servers", "List servers", kindRead, false,
+		append([]mcp.ToolOption{
+			mcp.WithDescription("List ServerPilot servers with ID, name, IP, plan, available PHP runtimes, firewall and auto-update status. Paged: a note after the list gives the next offset when there are more."),
+			refreshParam(),
+		}, pagingParams("servers", defaultPageLimit, maxPageLimit)...)...,
 	)
 }
 
 func toolGetServer() mcp.Tool {
-	return mcp.NewTool("sp_get_server",
-		mcp.WithDescription("Get details for a specific server by ID or name"),
-		mcp.WithString("server", mcp.Required(), mcp.Description("Server ID or name")),
+	return newTool("sp_get_server", "Get server", kindRead, false,
+		mcp.WithDescription("Get full details for one server."),
+		mcp.WithString("server", mcp.Required(), mcp.Description("Server ID, name, or IP address")),
 	)
 }
 
 func toolListApps() mcp.Tool {
-	return mcp.NewTool("sp_list_apps",
-		mcp.WithDescription("List all apps, optionally filtered by server"),
-		mcp.WithString("server", mcp.Description("Filter by server ID or name")),
+	return newTool("sp_list_apps", "List apps", kindRead, false,
+		append([]mcp.ToolOption{
+			mcp.WithDescription("List apps (sites) with their domains, PHP runtime, SSL state, server, system user, and whether WordPress is installed. " +
+				"Filter with query and/or server; to look up one known app, sp_get_app is cheaper. Paged: a note after the list gives the next offset when there are more."),
+			mcp.WithString("server", mcp.Description("Only apps on this server (ID, name, or IP)")),
+			queryParam("apps whose name or a domain contains this text"),
+			refreshParam(),
+		}, pagingParams("apps", defaultPageLimit, maxPageLimit)...)...,
 	)
 }
 
 func toolGetApp() mcp.Tool {
-	return mcp.NewTool("sp_get_app",
-		mcp.WithDescription("Get details for a specific app by ID, name, or domain"),
+	return newTool("sp_get_app", "Get app", kindRead, false,
+		mcp.WithDescription("Get details for one app, including its filesystem paths (web root, logs) for use with site_* tools. Secrets (WordPress admin password, SSL private key) are never returned."),
 		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
 	)
 }
 
 func toolUpdateAppRuntime() mcp.Tool {
-	return mcp.NewTool("sp_update_app_runtime",
-		mcp.WithDescription("Change an app's PHP runtime version"),
+	return newTool("sp_update_app_runtime", "Change PHP version", kindIdempotent, false,
+		mcp.WithDescription("Change an app's PHP runtime version. The runtime must be one the server offers (see sp_list_servers)."+asyncNote),
 		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
-		mcp.WithString("runtime", mcp.Required(), mcp.Description("PHP runtime (e.g. php8.0, php8.3)")),
+		mcp.WithString("runtime", mcp.Required(), mcp.Description("PHP runtime exactly as listed in the server's runtimes, e.g. php8.3")),
 	)
 }
 
 func toolListDatabases() mcp.Tool {
-	return mcp.NewTool("sp_list_databases",
-		mcp.WithDescription("List databases, optionally filtered by app or server"),
-		mcp.WithString("app", mcp.Description("Filter by app ID, name, or domain")),
-		mcp.WithString("server", mcp.Description("Filter by server ID or name")),
+	return newTool("sp_list_databases", "List databases", kindRead, false,
+		append([]mcp.ToolOption{
+			mcp.WithDescription("List MySQL databases with their user, app, and server. Filter with app, server, and/or query. Passwords are never returned. " +
+				"Paged: a note after the list gives the next offset when there are more."),
+			mcp.WithString("app", mcp.Description("Only databases of this app (ID, name, or domain)")),
+			mcp.WithString("server", mcp.Description("Only databases on this server (ID, name, or IP)")),
+			queryParam("databases whose name or user name contains this text"),
+			refreshParam(),
+		}, pagingParams("databases", defaultPageLimit, maxPageLimit)...)...,
 	)
 }
 
 func toolUpdateDBPassword() mcp.Tool {
-	return mcp.NewTool("sp_update_db_password",
-		mcp.WithDescription("Change a database user's MySQL password"),
-		mcp.WithString("database", mcp.Required(), mcp.Description("Database ID")),
-		mcp.WithString("password", mcp.Required(), mcp.Description("New password (min 8 characters)")),
+	return newTool("sp_update_db_password", "Change database password", kindIdempotent, false,
+		mcp.WithDescription("Set a new MySQL password for a database's user. The app's config (e.g. DB_PASSWORD in wp-config.php) is NOT updated; change it too or the site loses its database connection."+asyncNote),
+		mcp.WithString("database", mcp.Required(), mcp.Description("Database ID or name")),
+		mcp.WithString("password", mcp.Required(), mcp.MinLength(8), mcp.MaxLength(200), mcp.Description("New password, 8-200 characters, no leading or trailing whitespace")),
 	)
 }
 
 func toolListSysUsers() mcp.Tool {
-	return mcp.NewTool("sp_list_sysusers",
-		mcp.WithDescription("List system users, optionally filtered by server"),
-		mcp.WithString("server", mcp.Description("Filter by server ID or name")),
+	return newTool("sp_list_sysusers", "List system users", kindRead, false,
+		append([]mcp.ToolOption{
+			mcp.WithDescription("List system (Linux) users, which own apps and are what site_* tools log in as. Filter with server and/or query. " +
+				"Paged: a note after the list gives the next offset when there are more."),
+			mcp.WithString("server", mcp.Description("Only users on this server (ID, name, or IP)")),
+			queryParam("users whose name contains this text"),
+			refreshParam(),
+		}, pagingParams("system users", defaultPageLimit, maxPageLimit)...)...,
 	)
 }
 
 func toolGetAction() mcp.Tool {
-	return mcp.NewTool("sp_get_action",
-		mcp.WithDescription("Get the status of a ServerPilot action returned by any write tool. Status is 'open' (still running), 'success', or 'error'."),
+	return newTool("sp_get_action", "Check action status", kindRead, false,
+		mcp.WithDescription("Get the status of an action returned by a write tool: 'open' (still running), 'success', or 'error'. Pass wait_seconds to wait server-side until the action finishes instead of polling."),
 		mcp.WithString("action_id", mcp.Required(), mcp.Description("Action ID returned by a previous write tool")),
+		mcp.WithNumber("wait_seconds", mcp.Min(0), mcp.Max(maxActionWaitSeconds),
+			mcp.Description("Wait up to this many seconds for the action to leave 'open' (max 50; call again to keep waiting). 0 or omitted returns the current status immediately.")),
 	)
 }
 
 func toolUpdateAppDomains() mcp.Tool {
-	return mcp.NewTool("sp_update_app_domains",
-		mcp.WithDescription("Replace the full list of domains served by an app. The API replaces, not appends — pass every domain you want active."),
+	return newTool("sp_update_app_domains", "Set app domains", kindDestructive, false,
+		mcp.WithDescription("Replace the full list of domains an app serves. This REPLACES the list, it does not append: to add a domain, pass every existing domain plus the new one (sp_get_app shows the current list). The response includes the previous list."+asyncNote),
 		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
 		mcp.WithArray("domains", mcp.Required(),
-			mcp.Description("Complete list of domain names (e.g. ['example.com','www.example.com'])"),
+			mcp.Description("Complete list of domain names, without scheme, e.g. ['example.com','www.example.com']"),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
 	)
 }
 
 func toolSetAppSSL() mcp.Tool {
-	return mcp.NewTool("sp_set_app_ssl",
-		mcp.WithDescription("Configure SSL for an app. Pass exactly one of: 'auto' (toggle AutoSSL), 'force' (toggle HTTPS redirect), or 'key'+'cert' (install custom certificate)."),
+	return newTool("sp_set_app_ssl", "Configure SSL", kindIdempotent, false,
+		mcp.WithDescription("Configure SSL for an app. Pass exactly one of: 'auto: true' (enable AutoSSL; ServerPilot can only do this once an AutoSSL certificate is available, which requires the app's domains to point at the server), 'force' (HTTP-to-HTTPS redirect; SSL must already be active), or 'key'+'cert' (custom certificate). To turn SSL off, use sp_remove_app_ssl."+asyncNote),
 		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
-		mcp.WithBoolean("auto", mcp.Description("Enable (true) or disable (false) AutoSSL via Let's Encrypt")),
-		mcp.WithBoolean("force", mcp.Description("Enable (true) or disable (false) the HTTP-to-HTTPS redirect (ForceSSL)")),
-		mcp.WithString("key", mcp.Description("Custom SSL: PEM-encoded private key contents")),
-		mcp.WithString("cert", mcp.Description("Custom SSL: PEM-encoded certificate contents")),
-		mcp.WithString("cacerts", mcp.Description("Custom SSL: PEM-encoded CA certificate(s); empty for none")),
+		mcp.WithBoolean("auto", mcp.Description("true enables AutoSSL. The API does not accept false; use sp_remove_app_ssl to disable it")),
+		mcp.WithBoolean("force", mcp.Description("Enable (true) or disable (false) the HTTP-to-HTTPS redirect")),
+		mcp.WithString("key", mcp.Description("Custom SSL: PEM-encoded private key")),
+		mcp.WithString("cert", mcp.Description("Custom SSL: PEM-encoded certificate")),
+		mcp.WithString("cacerts", mcp.Description("Custom SSL: PEM-encoded CA chain; omit for none")),
 	)
 }
 
 func toolRemoveAppSSL() mcp.Tool {
-	return mcp.NewTool("sp_remove_app_ssl",
-		mcp.WithDescription("Remove an app's SSL configuration (deletes the custom cert and/or disables AutoSSL)."),
+	return newTool("sp_remove_app_ssl", "Remove SSL", kindIdempotent, false,
+		mcp.WithDescription("Remove an app's SSL configuration (deletes a custom certificate and/or disables AutoSSL). The site will no longer serve HTTPS."+asyncNote),
 		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain")),
 	)
 }
 
 func toolCreateApp() mcp.Tool {
-	return mcp.NewTool("sp_create_app",
-		mcp.WithDescription("Create a new app. Optionally installs WordPress when all four wordpress_* fields are provided."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("App nickname, 3–30 lowercase letters/digits")),
-		mcp.WithString("server", mcp.Required(), mcp.Description("Server ID or name")),
-		mcp.WithString("sysuser", mcp.Required(), mcp.Description("System user ID or name on that server")),
-		mcp.WithString("runtime", mcp.Required(), mcp.Description("PHP runtime (must appear in the server's available_runtimes)")),
+	return newTool("sp_create_app", "Create app", kindAdditive, false,
+		mcp.WithDescription("Create a new app on a server, owned by a system user. Installs WordPress too when all four wordpress_* fields are given. The app is not usable until its action succeeds."+asyncNote),
+		mcp.WithString("name", mcp.Required(), mcp.Pattern("^[a-z0-9]{3,30}$"), mcp.Description("App name, 3-30 lowercase letters/digits (no dashes); also its directory name")),
+		mcp.WithString("server", mcp.Required(), mcp.Description("Server ID, name, or IP")),
+		mcp.WithString("sysuser", mcp.Required(), mcp.Description("System user ID or name on that server (see sp_list_sysusers)")),
+		mcp.WithString("runtime", mcp.Required(), mcp.Description("PHP runtime from the server's runtimes list (sp_list_servers), e.g. php8.3")),
 		mcp.WithArray("domains",
-			mcp.Description("Optional list of domain names to serve this app on"),
+			mcp.Description("Domain names to serve, without scheme"),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
 		mcp.WithString("wordpress_site_title", mcp.Description("WordPress site title (required to install WP)")),
 		mcp.WithString("wordpress_admin_user", mcp.Description("WordPress admin username (required to install WP)")),
-		mcp.WithString("wordpress_admin_password", mcp.Description("WordPress admin password (required to install WP)")),
+		mcp.WithString("wordpress_admin_password", mcp.Description("WordPress admin password, 8-200 characters (required to install WP)")),
 		mcp.WithString("wordpress_admin_email", mcp.Description("WordPress admin email (required to install WP)")),
 	)
 }
 
 func toolCreateDatabase() mcp.Tool {
-	return mcp.NewTool("sp_create_database",
-		mcp.WithDescription("Create a MySQL database for an app, with a single user."),
+	return newTool("sp_create_database", "Create database", kindAdditive, false,
+		mcp.WithDescription("Create a MySQL database for an app, with a single user."+asyncNote),
 		mcp.WithString("app", mcp.Required(), mcp.Description("App ID, name, or domain that will own the database")),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Database name, 3–64 lowercase letters/digits/dash")),
-		mcp.WithString("user_name", mcp.Required(), mcp.Description("Database user name, max 16 characters")),
-		mcp.WithString("password", mcp.Required(), mcp.Description("Database user password, 8–200 characters")),
+		mcp.WithString("name", mcp.Required(), mcp.Pattern("^[a-z0-9-]{3,64}$"), mcp.Description("Database name, 3-64 lowercase letters/digits/dashes")),
+		mcp.WithString("user_name", mcp.Required(), mcp.MaxLength(16), mcp.Description("Database user name, at most 16 characters")),
+		mcp.WithString("password", mcp.Required(), mcp.MinLength(8), mcp.MaxLength(200), mcp.Description("Database user password, 8-200 characters, no leading or trailing whitespace")),
 	)
 }
 
 func toolDeleteDatabase() mcp.Tool {
-	return mcp.NewTool("sp_delete_database",
-		mcp.WithDescription("Delete a database (and its user)."),
-		mcp.WithString("database", mcp.Required(), mcp.Description("Database ID")),
+	return newTool("sp_delete_database", "Delete database", kindDestructive, false,
+		mcp.WithDescription("Permanently delete a database and its user. All data in it is lost; there is no undo. Take a backup first (e.g. site_exec 'wp db export')."+asyncNote),
+		mcp.WithString("database", mcp.Required(), mcp.Description("Database ID or name")),
 	)
 }
 
@@ -193,6 +220,9 @@ type appSummary struct {
 	SSL       string   `json:"ssl"` // "auto" | "custom" | "none"
 	ServerID  string   `json:"serverid"`
 	WordPress bool     `json:"wordpress"`
+	// Additive fields: save the model a sp_list_servers / sp_get_app round-trip.
+	Server    string `json:"server,omitempty"` // server name
+	SysUserID string `json:"sysuserid"`
 }
 
 // appDetail is the locked-down shape returned by sp_get_app. It deliberately
@@ -210,6 +240,17 @@ type appDetail struct {
 	SysUserID   string        `json:"sysuserid"`
 	DateCreated int64         `json:"datecreated"`
 	WordPress   *wpPublicInfo `json:"wordpress,omitempty"`
+	Paths       *appPaths     `json:"paths,omitempty"`
+}
+
+// appPaths are absolute server paths for the app, ready to pass to site_*
+// tools. Omitted when the system user can't be looked up.
+type appPaths struct {
+	SysUser string `json:"sysuser"`
+	Home    string `json:"home"`
+	App     string `json:"app"`
+	Public  string `json:"public"`
+	Logs    string `json:"logs"`
 }
 
 type wpPublicInfo struct {
@@ -281,8 +322,10 @@ func sslLabel(a *spapi.SPApp) string {
 	}
 }
 
+// jsonText returns v as compact JSON. Indentation costs roughly a quarter to
+// a third more tokens on list output and models don't need it.
 func jsonText(v any) (*mcp.CallToolResult, error) {
-	out, err := json.MarshalIndent(v, "", "  ")
+	out, err := json.Marshal(v)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -293,10 +336,37 @@ func errResult(err error) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(err.Error()), nil
 }
 
+// cleanDomains reduces each entry to a bare lowercase host (models often pass
+// "https://example.com/"), drops empties and duplicates, and keeps order.
+// A nil input stays nil so "domains omitted" is still distinguishable.
+func cleanDomains(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, d := range in {
+		h := spapi.NormalizeDomain(d)
+		if h != "" && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// maybeRefresh clears the API cache when the caller passed refresh: true.
+func maybeRefresh(d *Deps, req mcp.CallToolRequest) {
+	if req.GetBool("refresh", false) {
+		d.Cache.Clear()
+	}
+}
+
 // ---- Handlers ----
 
 func handleListServers(d *Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		maybeRefresh(d, req)
 		list, err := d.Servers.List()
 		if err != nil {
 			return errResult(err)
@@ -313,7 +383,7 @@ func handleListServers(d *Deps) server.ToolHandlerFunc {
 				Autoupdates: s.Autoupdates,
 			}
 		}
-		return jsonText(out)
+		return pagedJSON(out, req, defaultPageLimit, "servers", "")
 	}
 }
 
@@ -333,6 +403,7 @@ func handleGetServer(d *Deps) server.ToolHandlerFunc {
 
 func handleListApps(d *Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		maybeRefresh(d, req)
 		var apps []spapi.SPApp
 		if filter := req.GetString("server", ""); filter != "" {
 			srv, err := d.Servers.Resolve(filter)
@@ -350,9 +421,19 @@ func handleListApps(d *Deps) server.ToolHandlerFunc {
 			}
 			apps = a
 		}
-		out := make([]appSummary, len(apps))
-		for i, a := range apps {
-			out[i] = appSummary{
+		serverNames := map[string]string{}
+		if servers, err := d.Servers.List(); err == nil { // best effort
+			for _, srv := range servers {
+				serverNames[srv.ID] = srv.Name
+			}
+		}
+		query := req.GetString("query", "")
+		out := make([]appSummary, 0, len(apps))
+		for _, a := range apps {
+			if !matchesQuery(query, append([]string{a.Name}, a.Domains...)...) {
+				continue
+			}
+			out = append(out, appSummary{
 				ID:        a.ID,
 				Name:      a.Name,
 				Domains:   a.Domains,
@@ -360,9 +441,11 @@ func handleListApps(d *Deps) server.ToolHandlerFunc {
 				SSL:       sslLabel(&a),
 				ServerID:  a.ServerID,
 				WordPress: a.WordPress != nil,
-			}
+				Server:    serverNames[a.ServerID],
+				SysUserID: a.SysUserID,
+			})
 		}
-		return jsonText(out)
+		return pagedJSON(out, req, defaultPageLimit, "apps", "narrow with query or server")
 	}
 }
 
@@ -393,6 +476,16 @@ func handleGetApp(d *Deps) server.ToolHandlerFunc {
 				AdminUser:  app.WordPress.AdminUser,
 				AdminEmail: app.WordPress.AdminEmail,
 				LoginURL:   app.WordPress.LoginURL,
+			}
+		}
+		if su, err := d.SysUsers.Get(app.SysUserID); err == nil && su.Name != "" { // best effort
+			home := "/srv/users/" + su.Name
+			detail.Paths = &appPaths{
+				SysUser: su.Name,
+				Home:    home,
+				App:     home + "/apps/" + app.Name,
+				Public:  home + "/apps/" + app.Name + "/public",
+				Logs:    home + "/log/" + app.Name,
 			}
 		}
 		return jsonText(detail)
@@ -435,6 +528,7 @@ func handleUpdateAppRuntime(d *Deps) server.ToolHandlerFunc {
 
 func handleListDatabases(d *Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		maybeRefresh(d, req)
 		var dbs []spapi.SPDatabase
 		appFilter := req.GetString("app", "")
 		serverFilter := req.GetString("server", "")
@@ -447,6 +541,13 @@ func handleListDatabases(d *Deps) server.ToolHandlerFunc {
 			dbs, err = d.Databases.ListByApp(a.ID)
 			if err != nil {
 				return errResult(err)
+			}
+			if serverFilter != "" { // both given: apply both
+				srv, err := d.Servers.Resolve(serverFilter)
+				if err != nil {
+					return errResult(err)
+				}
+				dbs = slices.DeleteFunc(dbs, func(db spapi.SPDatabase) bool { return db.ServerID != srv.ID })
 			}
 		case serverFilter != "":
 			srv, err := d.Servers.Resolve(serverFilter)
@@ -464,18 +565,22 @@ func handleListDatabases(d *Deps) server.ToolHandlerFunc {
 			}
 			dbs = d2
 		}
-		out := make([]databaseSummary, len(dbs))
-		for i, db := range dbs {
-			out[i] = databaseSummary{
+		query := req.GetString("query", "")
+		out := make([]databaseSummary, 0, len(dbs))
+		for _, db := range dbs {
+			if !matchesQuery(query, db.Name, db.User.Name) {
+				continue
+			}
+			out = append(out, databaseSummary{
 				ID:       db.ID,
 				Name:     db.Name,
 				User:     db.User.Name,
 				UserID:   db.User.ID,
 				AppID:    db.AppID,
 				ServerID: db.ServerID,
-			}
+			})
 		}
-		return jsonText(out)
+		return pagedJSON(out, req, defaultPageLimit, "databases", "narrow with app, server, or query")
 	}
 }
 
@@ -492,11 +597,14 @@ func handleUpdateDBPassword(d *Deps) server.ToolHandlerFunc {
 		if len(password) < 8 {
 			return errResult(fmt.Errorf("password must be at least 8 characters"))
 		}
-		db, err := d.Databases.Get(dbID)
+		if strings.TrimSpace(password) != password {
+			return errResult(fmt.Errorf("password must not start or end with whitespace (ServerPilot API rule)"))
+		}
+		db, err := d.Databases.Resolve(dbID)
 		if err != nil {
 			return errResult(err)
 		}
-		res, err := d.Databases.UpdatePassword(dbID, db.User.ID, password)
+		res, err := d.Databases.UpdatePassword(db.ID, db.User.ID, password)
 		if err != nil {
 			return errResult(err)
 		}
@@ -508,6 +616,7 @@ func handleUpdateDBPassword(d *Deps) server.ToolHandlerFunc {
 
 func handleListSysUsers(d *Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		maybeRefresh(d, req)
 		var users []spapi.SPSysUser
 		if filter := req.GetString("server", ""); filter != "" {
 			srv, err := d.Servers.Resolve(filter)
@@ -525,16 +634,30 @@ func handleListSysUsers(d *Deps) server.ToolHandlerFunc {
 			}
 			users = u
 		}
-		out := make([]sysUserSummary, len(users))
-		for i, u := range users {
-			out[i] = sysUserSummary{
+		query := req.GetString("query", "")
+		out := make([]sysUserSummary, 0, len(users))
+		for _, u := range users {
+			if !matchesQuery(query, u.Name) {
+				continue
+			}
+			out = append(out, sysUserSummary{
 				ID:       u.ID,
 				Name:     u.Name,
 				ServerID: u.ServerID,
-			}
+			})
 		}
-		return jsonText(out)
+		return pagedJSON(out, req, defaultPageLimit, "system users", "narrow with server or query")
 	}
+}
+
+// maxActionWaitSeconds stays under the 60 s request timeout that several MCP
+// clients default to (Codex CLI tool_timeout_sec, the MCP TypeScript SDK);
+// longer waits are done by calling again.
+const maxActionWaitSeconds = 50
+
+// actionPollInterval is a var so tests can shorten it.
+var actionPollInterval = func(attempt int) time.Duration {
+	return min(time.Duration(attempt+1)*2*time.Second, 5*time.Second)
 }
 
 func handleGetAction(d *Deps) server.ToolHandlerFunc {
@@ -543,16 +666,38 @@ func handleGetAction(d *Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return errResult(err)
 		}
+		wait := min(req.GetFloat("wait_seconds", 0), maxActionWaitSeconds)
+		deadline := time.Now().Add(time.Duration(wait * float64(time.Second)))
+
 		act, err := d.Actions.Get(id)
+		for attempt := 0; err == nil && act.Status == "open" && time.Now().Before(deadline); attempt++ {
+			sleep := min(actionPollInterval(attempt), time.Until(deadline))
+			select {
+			case <-ctx.Done():
+				return errResult(fmt.Errorf("stopped waiting for action %s: %w", id, ctx.Err()))
+			case <-time.After(sleep):
+			}
+			act, err = d.Actions.Get(id)
+		}
 		if err != nil {
 			return errResult(err)
 		}
-		return jsonText(actionDetail{
+		if act.Status != "open" {
+			// The change has landed (or failed); cached app/database data
+			// may predate it.
+			d.Cache.Clear()
+		}
+		res, err := jsonText(actionDetail{
 			ID:          act.ID,
 			Status:      act.Status,
 			ServerID:    act.ServerID,
 			DateCreated: act.DateCreated,
 		})
+		if err == nil && act.Status == "open" && wait > 0 {
+			res.Content = append(res.Content, mcp.NewTextContent(
+				fmt.Sprintf("Still running after waiting %.0fs. Call sp_get_action again to keep waiting.", wait)))
+		}
+		return res, err
 	}
 }
 
@@ -566,16 +711,19 @@ func handleUpdateAppDomains(d *Deps) server.ToolHandlerFunc {
 		if domains == nil {
 			return errResult(fmt.Errorf("domains is required"))
 		}
+		domains = cleanDomains(domains)
 		app, err := d.Apps.Resolve(appID)
 		if err != nil {
 			return errResult(err)
 		}
+		previous := append([]string(nil), app.Domains...)
 		res, err := d.Apps.UpdateDomains(app.ID, domains)
 		if err != nil {
 			return errResult(err)
 		}
 		return mcp.NewToolResultText(
-			fmt.Sprintf(`Domains for "%s" updated to [%s]. Action ID: %s`, app.Name, strings.Join(domains, ", "), res.ActionID),
+			fmt.Sprintf(`Domains for "%s" updated to [%s] (previously [%s]). Action ID: %s`,
+				app.Name, strings.Join(domains, ", "), strings.Join(previous, ", "), res.ActionID),
 		), nil
 	}
 }
@@ -609,7 +757,10 @@ func handleSetAppSSL(d *Deps) server.ToolHandlerFunc {
 		body := map[string]any{}
 		switch {
 		case hasAuto:
-			body["auto"] = req.GetBool("auto", false)
+			if !req.GetBool("auto", false) {
+				return errResult(fmt.Errorf("the ServerPilot API only accepts auto: true. To disable AutoSSL, use sp_remove_app_ssl"))
+			}
+			body["auto"] = true
 		case hasForce:
 			body["force"] = req.GetBool("force", false)
 		default: // custom cert
@@ -677,7 +828,7 @@ func handleCreateApp(d *Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return errResult(err)
 		}
-		domains := req.GetStringSlice("domains", nil)
+		domains := cleanDomains(req.GetStringSlice("domains", nil))
 
 		srv, err := d.Servers.Resolve(serverArg)
 		if err != nil {
@@ -765,6 +916,9 @@ func handleCreateDatabase(d *Deps) server.ToolHandlerFunc {
 		if len(password) < 8 {
 			return errResult(fmt.Errorf("password must be at least 8 characters"))
 		}
+		if strings.TrimSpace(password) != password {
+			return errResult(fmt.Errorf("password must not start or end with whitespace (ServerPilot API rule)"))
+		}
 		app, err := d.Apps.Resolve(appArg)
 		if err != nil {
 			return errResult(err)
@@ -803,11 +957,11 @@ func handleDeleteDatabase(d *Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return errResult(err)
 		}
-		db, err := d.Databases.Get(dbID)
+		db, err := d.Databases.Resolve(dbID)
 		if err != nil {
 			return errResult(err)
 		}
-		res, err := d.Databases.Delete(dbID)
+		res, err := d.Databases.Delete(db.ID)
 		if err != nil {
 			return errResult(err)
 		}

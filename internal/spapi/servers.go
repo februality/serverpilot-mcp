@@ -33,39 +33,55 @@ func (s *ServersAPI) Get(id string) (*SPServer, error) {
 		return &srv, nil
 	}
 	var resp spSingleResponse[SPServer]
-	if err := s.client.Get("/servers/"+id, &resp); err != nil {
+	if err := s.client.Get("/servers/"+pathSegment(id), &resp); err != nil {
 		return nil, err
 	}
 	s.cache.Set(key, resp.Data)
 	return &resp.Data, nil
 }
 
-func (s *ServersAPI) FindByName(name string) (*SPServer, error) {
-	servers, err := s.List()
-	if err != nil {
-		return nil, err
-	}
-	target := strings.ToLower(name)
-	for i := range servers {
-		if strings.ToLower(servers[i].Name) == target {
-			return &servers[i], nil
+// Resolve accepts a server ID, name (case-insensitive), or IP address. The
+// cached list is checked before a per-ID GET; if the list call fails (or has
+// no match) a direct GET by ID is attempted.
+func (s *ServersAPI) Resolve(idOrName string) (*SPServer, error) {
+	ident := strings.TrimSpace(idOrName)
+	list, listErr := s.List()
+	if listErr == nil {
+		for i := range list {
+			if list[i].ID == ident {
+				if srv, err := s.Get(ident); err == nil {
+					return srv, nil
+				}
+				return &list[i], nil
+			}
+		}
+		var m []SPServer
+		host := NormalizeDomain(ident) // "http://1.2.3.4/", "1.2.3.4:22", "Web1." → bare host
+		for i := range list {
+			name, ip := list[i].Name, list[i].LastAddress
+			if strings.EqualFold(name, ident) || strings.EqualFold(name, host) || (ip != "" && (ip == ident || ip == host)) {
+				m = append(m, list[i])
+			}
+		}
+		switch len(m) {
+		case 1:
+			return &m[0], nil
+		case 0:
+		default:
+			c := make([]string, len(m))
+			for i, x := range m {
+				c[i] = fmt.Sprintf("%s (id %s, ip %s)", x.Name, x.ID, x.LastAddress)
+			}
+			return nil, ambiguousError("server", ident, c)
 		}
 	}
-	return nil, nil
-}
-
-// Resolve tries ID first, then name. Mirrors src/api/servers.ts:resolve —
-// any error from Get() (not just 404) falls through to the name lookup.
-func (s *ServersAPI) Resolve(idOrName string) (*SPServer, error) {
-	if srv, err := s.Get(idOrName); err == nil {
-		return srv, nil
+	if ident != "" {
+		if srv, err := s.Get(ident); err == nil && srv.ID != "" {
+			return srv, nil
+		}
 	}
-	srv, err := s.FindByName(idOrName)
-	if err != nil {
-		return nil, err
+	if listErr != nil {
+		return nil, listErr
 	}
-	if srv == nil {
-		return nil, fmt.Errorf("Server not found: %s", idOrName)
-	}
-	return srv, nil
+	return nil, fmt.Errorf("Server not found: %s", idOrName)
 }

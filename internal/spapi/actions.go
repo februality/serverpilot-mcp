@@ -12,7 +12,7 @@ func NewActionsAPI(client *Client) *ActionsAPI {
 
 func (a *ActionsAPI) Get(id string) (*SPAction, error) {
 	var resp spSingleResponse[SPAction]
-	if err := a.client.Get("/actions/"+id, &resp); err != nil {
+	if err := a.client.Get("/actions/"+pathSegment(id), &resp); err != nil {
 		return nil, err
 	}
 	return &resp.Data, nil

@@ -21,14 +21,20 @@ func newTestDeps(t *testing.T, handler http.HandlerFunc) (*Deps, *httptest.Serve
 	cfg := &config.Config{ClientID: "cid", APIKey: "key", CacheTTLSeconds: 60}
 	cache := spapi.NewTTLCache(cfg.CacheTTLSeconds)
 	client := spapi.NewClientWithBaseURL(cfg.ClientID, cfg.APIKey, srv.URL)
+	servers := spapi.NewServersAPI(client, cache)
+	apps := spapi.NewAppsAPI(client, cache)
+	sysusers := spapi.NewSysUsersAPI(client, cache)
 	return &Deps{
 		Cfg:       cfg,
 		Cache:     cache,
 		Client:    client,
-		Servers:   spapi.NewServersAPI(client, cache),
-		Apps:      spapi.NewAppsAPI(client, cache),
-		SysUsers:  spapi.NewSysUsersAPI(client, cache),
+		Servers:   servers,
+		Apps:      apps,
+		SysUsers:  sysusers,
 		Databases: spapi.NewDatabasesAPI(client, cache),
+		SSHKeys:   spapi.NewSSHKeysAPI(client),
+		Actions:   spapi.NewActionsAPI(client),
+		Resolver:  spapi.NewSiteResolver(apps, servers, sysusers),
 	}, srv
 }
 

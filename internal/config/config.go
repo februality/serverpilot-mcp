@@ -31,6 +31,9 @@ type Config struct {
 	// ReadOnly hides every mutating tool from the MCP server's tools/list.
 	// Driven by SP_READ_ONLY (1/true/yes). Off by default.
 	ReadOnly bool
+	// TransferDir is the only local directory site_download_file may write
+	// into and site_upload_file may read from. Driven by SP_TRANSFER_DIR.
+	TransferDir string
 }
 
 const (
@@ -40,6 +43,7 @@ const (
 	DefaultCacheTTLSec       = 300
 	DefaultSSHTimeout        = 30000
 	DefaultSiteExecTimeoutMs = 120000
+	DefaultTransferDir       = "~/Downloads/serverpilot-mcp"
 )
 
 // ErrNoCredentials is returned by Load when neither environment vars nor
@@ -97,6 +101,20 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	transferDir := os.Getenv("SP_TRANSFER_DIR")
+	if transferDir == "" {
+		transferDir = DefaultTransferDir
+	}
+	expandedTransfer, err := ExpandHome(transferDir)
+	if err != nil {
+		return nil, err
+	}
+	// A relative value would otherwise resolve against whatever directory the
+	// MCP client happens to launch the server from.
+	if expandedTransfer, err = filepath.Abs(expandedTransfer); err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Account:           account,
 		ClientID:          resolved.ClientID,
@@ -110,6 +128,7 @@ func Load() (*Config, error) {
 		SiteExecTimeoutMs: intEnv("SP_SITE_EXEC_TIMEOUT_MS", DefaultSiteExecTimeoutMs),
 		InsecureHostKey:   os.Getenv("SP_INSECURE_DISABLE_HOST_KEY_CHECK") == "1",
 		ReadOnly:          boolEnv("SP_READ_ONLY"),
+		TransferDir:       expandedTransfer,
 	}, nil
 }
 

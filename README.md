@@ -25,7 +25,7 @@ After the installer downloads the binary, it launches a setup wizard. Step throu
 1. **Paste your Client ID** when prompted, then **paste your API Key** (input is hidden). The wizard verifies them against the ServerPilot API and prints a server / app count on success. It stores them in your OS keychain (or a `0600` file on headless Linux). If you want to bypass the keychain, hit Ctrl+C and re-run with `SERVERPILOT_CLIENT_ID=... SERVERPILOT_API_KEY=... serverpilot-mcp setup`.
 2. **Confirm SSH key assignment** (default: Yes). The wizard generates an Ed25519 key at `~/.ssh/serverpilot-mcp`, registers it with ServerPilot, and assigns it to every sysuser on your account. Re-running the wizard later is safe — already-assigned users are skipped.
 3. **Pick which AI tools to patch** from the multi-select list. Detected tools are pre-checked; press space to toggle, enter to confirm. Skip anything you don't want touched.
-4. **Restart your AI tool** (quit and relaunch Claude Code, Cursor, etc.). The 22 tools listed below are now available.
+4. **Restart your AI tool** (quit and relaunch Claude Code, Cursor, etc.). The 25 tools listed below are now available.
 5. **Verify** with `serverpilot-mcp doctor` — checks credentials, hits the API, and inspects each patched client config.
 
 If anything looks off, `serverpilot-mcp status` shows what's configured and where, and `serverpilot-mcp setup` is always re-runnable.
@@ -175,30 +175,37 @@ Once the wizard is done and your AI tool has been restarted, just talk to it. Be
 
 | Tool | Purpose |
 |---|---|
-| `sp_list_servers` | List all servers with IPs, plans, available runtimes |
-| `sp_get_server` | Server details by ID or name |
-| `sp_list_apps` | List apps, optionally filtered by server |
-| `sp_get_app` | App details by ID, name, or domain (secrets redacted) |
+| `sp_list_servers` | List servers with IPs, plans, available runtimes |
+| `sp_get_server` | Server details by ID, name, or IP |
+| `sp_list_apps` | List apps with server name and sysuser; filter by `server` or `query` (name/domain) |
+| `sp_get_app` | App details by ID, name, or domain, including its web-root and log paths (secrets redacted) |
 | `sp_create_app` | Create a new app on a server/sysuser; optionally installs WordPress |
 | `sp_update_app_runtime` | Change an app's PHP runtime version (validated against the server's available runtimes) |
 | `sp_update_app_domains` | Replace the full list of domains an app serves |
-| `sp_set_app_ssl` | Configure SSL: AutoSSL toggle, ForceSSL toggle, or custom certificate |
+| `sp_set_app_ssl` | Configure SSL: enable AutoSSL, toggle ForceSSL, or install a custom certificate (disable SSL with `sp_remove_app_ssl`) |
 | `sp_remove_app_ssl` | Remove SSL configuration from an app |
-| `sp_list_databases` | List databases, optionally filtered by app or server |
+| `sp_list_databases` | List databases; filter by `app`, `server`, or `query` |
 | `sp_create_database` | Create a MySQL database (with user) for an app |
-| `sp_delete_database` | Delete a database and its user |
-| `sp_update_db_password` | Change a database user's MySQL password |
-| `sp_list_sysusers` | List system users, optionally filtered by server |
-| `sp_get_action` | Poll the status of any ServerPilot action returned by a write tool |
-| `sp_ssh_setup` | Generate the SSH key, register with ServerPilot, assign to sysusers |
-| `sp_ssh_status` | Show SSH key status (local + remote + per-sysuser) |
+| `sp_delete_database` | Delete a database and its user (by ID or name) |
+| `sp_update_db_password` | Change a database user's MySQL password (by ID or name) |
+| `sp_list_sysusers` | List system users; filter by `server` or `query` |
+| `sp_get_action` | Status of an action returned by a write tool; `wait_seconds` (up to 50) waits server-side until it finishes |
+| `sp_ssh_setup` | Generate the SSH key, register with ServerPilot, assign to sysusers (all, or scoped by `site` / `users`) |
+| `sp_ssh_status` | Show SSH key status (local + remote + per-sysuser); scope with `site` or `server` |
 | `sp_ssh_remove` | Unassign the SSH key from sysusers; optionally delete it from ServerPilot |
 | `site_exec` | Run a shell command on a site's server as the site's sysuser |
-| `site_read_file` | Read a file via SFTP |
-| `site_write_file` | Write a file via SFTP (overwrites — there is no append mode) |
-| `site_list_files` | List directory contents via SFTP |
+| `site_read_file` | Read a text file via SFTP; capped at 2000 lines / 40 KB per call, with `offset` paging and `tail` |
+| `site_write_file` | Create or fully replace a file via SFTP (atomic; keeps permissions) |
+| `site_edit_file` | Exact-string replacement in a file (atomic) — use instead of rewriting whole files |
+| `site_list_files` | List directory contents via SFTP (300 entries per page) |
+| `site_download_file` | Copy a server file to this machine (binaries, backups, big logs) |
+| `site_upload_file` | Copy a local file to the server |
 
-`site_*` tools accept the app's name or domain. All file paths are sandboxed to `/srv/users/USERNAME/`.
+`site_*` tools accept the app's name or domain (full URLs are fine). All remote file paths are sandboxed to `/srv/users/USERNAME/`; local paths for `site_download_file` / `site_upload_file` are confined to the transfer directory (`~/Downloads/serverpilot-mcp` by default).
+
+List tools (`sp_list_*`, `sp_ssh_status`, `site_list_files`) are paged with `limit` / `offset` so a large account never produces a result too big for the model's context: a page ends at the item limit (100 by default; 300 for `site_list_files`) or about 40 KB, whichever comes first. The first content block is the same JSON value as before (compact-encoded); when there is more, a second block says which `offset` to use next. Lists that fit in one page decode to exactly what they did before.
+
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients can auto-approve reads and flag destructive calls, and the server sends workflow instructions (async actions, SSH prerequisite, ServerPilot directory layout) in its `initialize` response.
 
 ## CLI
 
@@ -298,8 +305,9 @@ Environment variables (all optional except credentials):
 | `SP_CACHE_TTL_SECONDS` | `300` | API response cache TTL |
 | `SP_SSH_TIMEOUT_MS` | `30000` | SSH connection timeout |
 | `SP_SITE_EXEC_TIMEOUT_MS` | `120000` | `site_exec` default timeout. Pass `timeout: 0` from the tool call to disable. |
+| `SP_TRANSFER_DIR` | `~/Downloads/serverpilot-mcp` | The only local directory `site_download_file` writes into and `site_upload_file` reads from |
 | `SP_INSECURE_DISABLE_HOST_KEY_CHECK` | unset | Set to `1` to bypass host-key verification (testing only — logs a warning) |
-| `SP_READ_ONLY` | unset | Set to `1` to hide every write tool (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`) so the AI tool can read but cannot change anything. `setup` and `install` both accept `--read-only` to bake this into the client config. |
+| `SP_READ_ONLY` | unset | Set to `1` to hide every write tool (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`, `site_edit_file`, `site_upload_file`) so the AI tool can read but cannot change anything. `setup` and `install` both accept `--read-only` to bake this into the client config. |
 | `SP_ACCOUNT` | unset | Named ServerPilot account this `serve` process is bound to. Set automatically by `setup --account <name>` / `install --account <name>` in the patched client config — don't set manually unless you know what you're doing. |
 
 ## Building from source
@@ -317,13 +325,16 @@ go test ./...
 
 > ⚠️ **Safety.** We deliberately left out the API tools for deleting sites, servers, and sysusers, so your model can't tear those down through ServerPilot itself. It *can* delete databases (`sp_delete_database`) and SSL config (`sp_remove_app_ssl`), and create apps and databases. It also has shell access as your sysuser, so it can `rm -rf` your site files, drop database tables, overwrite files with no backup, change PHP runtimes, and reset database passwords. Read what it's about to do before you approve it, and keep your own backups. If you'd rather not give it any write capability, see read-only mode below.
 >
-> **Read-only mode.** If you'd rather not give the AI tool any way to change things, run `serverpilot-mcp setup --read-only` (or pass `--read-only` to `install`). The MCP server will start up with every write tool hidden — the twelve writes (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`) never appear in `tools/list`, so the model is technically unable to call them. `serverpilot-mcp status` shows which clients are configured this way.
+> **Read-only mode.** If you'd rather not give the AI tool any way to change things, run `serverpilot-mcp setup --read-only` (or pass `--read-only` to `install`). The MCP server will start up with every write tool hidden — the fourteen writes (`sp_create_app`, `sp_update_app_runtime`, `sp_update_app_domains`, `sp_set_app_ssl`, `sp_remove_app_ssl`, `sp_create_database`, `sp_delete_database`, `sp_update_db_password`, `sp_ssh_setup`, `sp_ssh_remove`, `site_exec`, `site_write_file`, `site_edit_file`, `site_upload_file`) never appear in `tools/list`, so the model is technically unable to call them. `site_download_file` stays available without its `overwrite` option (it reads from the server and only creates new files inside the local transfer directory), and symlinks that resolve outside the sysuser's home are refused. `serverpilot-mcp status` shows which clients are configured this way.
 
 - **Credentials** are stored in the OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service) or a `0600` file in your config directory if no keychain is available. Env vars override both.
 - **SSH host keys** are pinned on first contact (TOFU) into `~/.ssh/serverpilot-mcp_known_hosts`, separate from your personal `known_hosts`. A subsequent mismatch fails loud and refuses to connect; remove the offending line manually if you genuinely re-imaged the server.
 - **File operations** are sandboxed to `/srv/users/USERNAME/`. Path traversal attempts are rejected before reaching SFTP, with a fuzz test guarding the boundary.
 - **`sp_get_app`** does not expose the WordPress admin password or SSL key/cert material. Read those from the server itself (`wp-config.php`, `/etc/letsencrypt/...`) via `site_read_file` if needed.
-- **`site_exec`** has a 2-minute default timeout. Pass `timeout: 0` from the tool call to disable for long-running tasks.
+- **`site_exec`** has a 2-minute default timeout (in milliseconds; values under 1000 are rejected as a likely seconds mix-up). Pass `timeout: 0` from the tool call to disable for long-running tasks. On timeout or client cancellation a kill signal is sent and the output so far is returned; some SSH servers ignore the signal, so the result says the process may still be running. Output beyond ~44 KB keeps the start and end (results stay under the 50,000-character size at which Claude Code moves a tool result out of the conversation into a file). Note that some MCP clients time out tool calls after 60 seconds by default (Codex CLI `tool_timeout_sec`); raise that for long commands.
+- **`site_read_file`** returns the file text in the first content block exactly as stored; when the read is partial (over 2000 lines / 40 KB, or `offset`/`tail`), a separate block says how to continue, so truncation markers never end up in the content.
+- **Writes** (`site_write_file`, `site_edit_file`, `site_upload_file`) go through a private (0600) temp file and an atomic rename, keep the original permissions (including setgid) and owner/group, and refuse files without write permission (e.g. a `wp-config.php` locked to `0400`) instead of silently replacing them.
+- **File transfer** never touches your local filesystem outside `SP_TRANSFER_DIR`, so a prompt-injected model can't overwrite your dotfiles or upload your SSH keys.
 
 ## License
 

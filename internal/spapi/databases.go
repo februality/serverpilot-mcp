@@ -1,5 +1,10 @@
 package spapi
 
+import (
+	"fmt"
+	"strings"
+)
+
 type DatabasesAPI struct {
 	client *Client
 	cache  *TTLCache
@@ -28,7 +33,7 @@ func (d *DatabasesAPI) Get(id string) (*SPDatabase, error) {
 		return &db, nil
 	}
 	var resp spSingleResponse[SPDatabase]
-	if err := d.client.Get("/dbs/"+id, &resp); err != nil {
+	if err := d.client.Get("/dbs/"+pathSegment(id), &resp); err != nil {
 		return nil, err
 	}
 	d.cache.Set(key, resp.Data)
@@ -69,7 +74,7 @@ func (d *DatabasesAPI) UpdatePassword(dbID, dbUserID, password string) (*SPActio
 	body := map[string]any{
 		"user": map[string]any{"id": dbUserID, "password": password},
 	}
-	if err := d.client.Post("/dbs/"+dbID, body, &resp); err != nil {
+	if err := d.client.Post("/dbs/"+pathSegment(dbID), body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -107,8 +112,50 @@ func (d *DatabasesAPI) Create(req CreateDatabaseRequest) (*CreateDatabaseResult,
 func (d *DatabasesAPI) Delete(id string) (*SPActionResponse, error) {
 	d.cache.InvalidatePrefix("database")
 	var resp SPActionResponse
-	if err := d.client.Delete("/dbs/"+id, &resp); err != nil {
+	if err := d.client.Delete("/dbs/"+pathSegment(id), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// Resolve accepts a database ID or name (case-insensitive). Database names
+// can repeat across servers, so an ambiguous name returns an error listing
+// each candidate's ID and server.
+func (d *DatabasesAPI) Resolve(idOrName string) (*SPDatabase, error) {
+	ident := strings.TrimSpace(idOrName)
+	dbs, listErr := d.List()
+	if listErr == nil {
+		var m []SPDatabase
+		for i := range dbs {
+			if dbs[i].ID == ident {
+				if db, err := d.Get(ident); err == nil {
+					return db, nil
+				}
+				return &dbs[i], nil
+			}
+			if strings.EqualFold(dbs[i].Name, ident) {
+				m = append(m, dbs[i])
+			}
+		}
+		switch len(m) {
+		case 1:
+			return &m[0], nil
+		case 0:
+		default:
+			c := make([]string, len(m))
+			for i, x := range m {
+				c[i] = fmt.Sprintf("%s (id %s, server %s)", x.Name, x.ID, x.ServerID)
+			}
+			return nil, ambiguousError("database", ident, c)
+		}
+	}
+	if ident != "" {
+		if db, err := d.Get(ident); err == nil && db.ID != "" {
+			return db, nil
+		}
+	}
+	if listErr != nil {
+		return nil, listErr
+	}
+	return nil, fmt.Errorf("Database not found: %s", idOrName)
 }

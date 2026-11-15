@@ -36,7 +36,7 @@ func (s *SysUsersAPI) Get(id string) (*SPSysUser, error) {
 		return &u, nil
 	}
 	var resp spSingleResponse[SPSysUser]
-	if err := s.client.Get("/sysusers/"+id, &resp); err != nil {
+	if err := s.client.Get("/sysusers/"+pathSegment(id), &resp); err != nil {
 		return nil, err
 	}
 	if resp.Data.ID == "" {
@@ -77,4 +77,43 @@ func (s *SysUsersAPI) Resolve(idOrName, serverID string) (*SPSysUser, error) {
 		}
 	}
 	return nil, fmt.Errorf("System user not found on server: %s", idOrName)
+}
+
+// ResolveAny accepts a system user ID or name across all servers. Names like
+// "serverpilot" exist on every server, so a name that matches more than one
+// user returns an error listing each candidate's ID and server.
+func (s *SysUsersAPI) ResolveAny(idOrName string) (*SPSysUser, error) {
+	ident := strings.TrimSpace(idOrName)
+	users, listErr := s.List()
+	if listErr == nil {
+		var m []SPSysUser
+		for i := range users {
+			if users[i].ID == ident {
+				return &users[i], nil
+			}
+			if strings.EqualFold(users[i].Name, ident) {
+				m = append(m, users[i])
+			}
+		}
+		switch len(m) {
+		case 1:
+			return &m[0], nil
+		case 0:
+		default:
+			c := make([]string, len(m))
+			for i, x := range m {
+				c[i] = fmt.Sprintf("%s (id %s, server %s)", x.Name, x.ID, x.ServerID)
+			}
+			return nil, ambiguousError("system user", ident, c)
+		}
+	}
+	if ident != "" {
+		if u, err := s.Get(ident); err == nil {
+			return u, nil
+		}
+	}
+	if listErr != nil {
+		return nil, listErr
+	}
+	return nil, fmt.Errorf("System user %s not found", idOrName)
 }

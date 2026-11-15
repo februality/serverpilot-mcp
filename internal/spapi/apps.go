@@ -33,7 +33,7 @@ func (a *AppsAPI) Get(id string) (*SPApp, error) {
 		return &app, nil
 	}
 	var resp spSingleResponse[SPApp]
-	if err := a.client.Get("/apps/"+id, &resp); err != nil {
+	if err := a.client.Get("/apps/"+pathSegment(id), &resp); err != nil {
 		return nil, err
 	}
 	a.cache.Set(key, resp.Data)
@@ -52,36 +52,6 @@ func (a *AppsAPI) ListByServer(serverID string) ([]SPApp, error) {
 		}
 	}
 	return out, nil
-}
-
-func (a *AppsAPI) FindByName(name string) (*SPApp, error) {
-	apps, err := a.List()
-	if err != nil {
-		return nil, err
-	}
-	target := strings.ToLower(name)
-	for i := range apps {
-		if strings.ToLower(apps[i].Name) == target {
-			return &apps[i], nil
-		}
-	}
-	return nil, nil
-}
-
-func (a *AppsAPI) FindByDomain(domain string) (*SPApp, error) {
-	apps, err := a.List()
-	if err != nil {
-		return nil, err
-	}
-	target := strings.ToLower(domain)
-	for i := range apps {
-		for _, d := range apps[i].Domains {
-			if strings.ToLower(d) == target {
-				return &apps[i], nil
-			}
-		}
-	}
-	return nil, nil
 }
 
 type UpdateRuntimeResult struct {
@@ -106,7 +76,7 @@ func (a *AppsAPI) update(id string, body map[string]any) (*UpdateRuntimeResult, 
 		ActionID string `json:"actionid"`
 		Data     SPApp  `json:"data"`
 	}
-	if err := a.client.Post("/apps/"+id, body, &resp); err != nil {
+	if err := a.client.Post("/apps/"+pathSegment(id), body, &resp); err != nil {
 		return nil, err
 	}
 	return &UpdateRuntimeResult{ActionID: resp.ActionID}, nil
@@ -152,7 +122,7 @@ func (a *AppsAPI) SetSSL(id string, body map[string]any) (*UpdateRuntimeResult, 
 	var resp struct {
 		ActionID string `json:"actionid"`
 	}
-	if err := a.client.Post("/apps/"+id+"/ssl", body, &resp); err != nil {
+	if err := a.client.Post("/apps/"+pathSegment(id)+"/ssl", body, &resp); err != nil {
 		return nil, err
 	}
 	return &UpdateRuntimeResult{ActionID: resp.ActionID}, nil
@@ -164,28 +134,82 @@ func (a *AppsAPI) RemoveSSL(id string) (*UpdateRuntimeResult, error) {
 	var resp struct {
 		ActionID string `json:"actionid"`
 	}
-	if err := a.client.Delete("/apps/"+id+"/ssl", &resp); err != nil {
+	if err := a.client.Delete("/apps/"+pathSegment(id)+"/ssl", &resp); err != nil {
 		return nil, err
 	}
 	return &UpdateRuntimeResult{ActionID: resp.ActionID}, nil
 }
 
-// Resolve tries ID, then name, then domain. Mirrors src/api/apps.ts:resolve.
+// Resolve accepts an app ID, name (case-insensitive), or domain. Domains are
+// normalized first (scheme, path, port stripped), and a missing "www." prefix
+// is tolerated in either direction when there is no exact match. The cached
+// app list is consulted before any per-ID GET so a name lookup costs no
+// wasted 404 round-trip. Ambiguous names/domains return an error listing the
+// candidates rather than silently picking one.
 func (a *AppsAPI) Resolve(idOrNameOrDomain string) (*SPApp, error) {
-	if app, err := a.Get(idOrNameOrDomain); err == nil {
-		return app, nil
+	ident := strings.TrimSpace(idOrNameOrDomain)
+	apps, listErr := a.List()
+	if listErr == nil {
+		for i := range apps {
+			if apps[i].ID == ident {
+				if app, err := a.Get(ident); err == nil {
+					return app, nil
+				}
+				return &apps[i], nil
+			}
+		}
+		if m := filterApps(apps, func(x *SPApp) bool { return strings.EqualFold(x.Name, ident) }); len(m) > 0 {
+			return pickApp(ident, m)
+		}
+		host := NormalizeDomain(ident)
+		alt := "www." + host
+		if strings.HasPrefix(host, "www.") {
+			alt = strings.TrimPrefix(host, "www.")
+		}
+		for _, h := range []string{host, alt} {
+			if m := filterApps(apps, func(x *SPApp) bool { return hasDomain(x, h) }); len(m) > 0 {
+				return pickApp(ident, m)
+			}
+		}
 	}
-	if app, err := a.FindByName(idOrNameOrDomain); err != nil {
-		return nil, err
-	} else if app != nil {
-		return app, nil
+	// Not in the (possibly stale) list — try it as an ID directly.
+	if ident != "" {
+		if app, err := a.Get(ident); err == nil && app.ID != "" {
+			return app, nil
+		}
 	}
-	app, err := a.FindByDomain(idOrNameOrDomain)
-	if err != nil {
-		return nil, err
+	if listErr != nil {
+		return nil, listErr
 	}
-	if app == nil {
-		return nil, fmt.Errorf("App not found: %s", idOrNameOrDomain)
+	return nil, fmt.Errorf("App not found: %s", idOrNameOrDomain)
+}
+
+func filterApps(apps []SPApp, keep func(*SPApp) bool) []SPApp {
+	var out []SPApp
+	for i := range apps {
+		if keep(&apps[i]) {
+			out = append(out, apps[i])
+		}
 	}
-	return app, nil
+	return out
+}
+
+func hasDomain(app *SPApp, host string) bool {
+	for _, d := range app.Domains {
+		if strings.EqualFold(d, host) {
+			return true
+		}
+	}
+	return false
+}
+
+func pickApp(ident string, m []SPApp) (*SPApp, error) {
+	if len(m) == 1 {
+		return &m[0], nil
+	}
+	c := make([]string, len(m))
+	for i, x := range m {
+		c[i] = fmt.Sprintf("%s (id %s, server %s)", x.Name, x.ID, x.ServerID)
+	}
+	return nil, ambiguousError("app", ident, c)
 }
